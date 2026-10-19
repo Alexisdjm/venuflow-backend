@@ -1,0 +1,70 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum SpaStatus {
+  ACTIVE
+  SUSPENDED
+}
+enum UserRole {
+  PLATFORM_ADMIN
+  SPA_ADMIN
+  PROFESSIONAL
+}
+enum UserStatus {
+  ACTIVE
+  SUSPENDED
+}
+
+model Spa {
+  id        String     @id @default(uuid()) @db.Uuid
+  name      String
+  slug      String     @unique
+  status    SpaStatus  @default(ACTIVE)
+  timezone  String
+  currency  String     @db.VarChar(3)
+  users     User[]
+  professionals Professional[]
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+}
+
+model User {
+  id           String      @id @default(uuid()) @db.Uuid
+  spaId        String?     @db.Uuid
+  spa          Spa?        @relation(fields: [spaId], references: [id], onDelete: Restrict)
+  firstName    String
+  lastName     String
+  email        String      @unique
+  passwordHash String
+  role         UserRole
+  status       UserStatus  @default(ACTIVE)
+  professional Professional?
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
+  @@unique([id, spaId])
+  @@index([spaId])
+}
+
+model Professional {
+  id             String   @id @default(uuid()) @db.Uuid
+  spaId          String   @db.Uuid
+  userId         String   @unique @db.Uuid
+  spa            Spa      @relation(fields: [spaId], references: [id], onDelete: Restrict)
+  user           User     @relation(fields: [userId, spaId], references: [id, spaId], onDelete: Restrict)
+  displayName    String
+  commissionRate Decimal  @db.Decimal(5, 2)
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([id, spaId])
+  @@unique([userId, spaId])
+  @@index([spaId])
+}

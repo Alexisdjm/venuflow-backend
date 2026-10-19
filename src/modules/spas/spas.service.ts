@@ -1,0 +1,73 @@
+import {
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
+import * as argon2 from 'argon2';
+import { PrismaService } from '../../database/prisma/prisma.service';
+import { CreateSpaDto, UpdateSpaDto } from './dto/spa.dto';
+import { ProvisionAdminDto } from './dto/provision-admin.dto';
+import { PaginationDto } from '../../common/dto/pagination.dto';
+@Injectable()
+export class SpasService {
+  constructor(private readonly prisma: PrismaService) {}
+  async create(dto: CreateSpaDto) {
+    try {
+      return await this.prisma.spa.create({ data: dto });
+    } catch {
+      throw new ConflictException('Spa slug already exists');
+    }
+  }
+  async list(q: PaginationDto) {
+    const skip = (q.page - 1) * q.limit;
+    const [data, total] = await this.prisma.$transaction([
+      this.prisma.spa.findMany({
+        skip,
+        take: q.limit,
+        orderBy: { createdAt: 'desc' },
+      }),
+      this.prisma.spa.count(),
+    ]);
+    return { data, meta: { page: q.page, limit: q.limit, total } };
+  }
+  async get(id: string) {
+    const spa = await this.prisma.spa.findUnique({ where: { id } });
+    if (!spa) throw new NotFoundException('Spa not found');
+    return spa;
+  }
+  async update(id: string, dto: UpdateSpaDto) {
+    await this.get(id);
+    return this.prisma.spa.update({ where: { id }, data: dto });
+  }
+  async provisionAdmin(spaId: string, dto: ProvisionAdminDto) {
+    await this.get(spaId);
+    const exists = await this.prisma.user.findFirst({
+      where: { spaId, role: 'SPA_ADMIN' },
+    });
+    if (exists) throw new ConflictException('Spa already has an administrator');
+    try {
+      return await this.prisma.user.create({
+        data: {
+          spaId,
+          firstName: dto.firstName,
+          lastName: dto.lastName,
+          email: dto.email.toLowerCase(),
+          passwordHash: await argon2.hash(dto.password),
+          role: 'SPA_ADMIN',
+        },
+        select: {
+          id: true,
+          spaId: true,
+          firstName: true,
+          lastName: true,
+          email: true,
+          role: true,
+          status: true,
+          createdAt: true,
+        },
+      });
+    } catch {
+      throw new ConflictException('Email already exists');
+    }
+  }
+}

@@ -1,0 +1,17 @@
+CREATE TYPE "SpaStatus" AS ENUM ('ACTIVE', 'SUSPENDED');
+CREATE TYPE "UserRole" AS ENUM ('PLATFORM_ADMIN', 'SPA_ADMIN', 'PROFESSIONAL');
+CREATE TYPE "UserStatus" AS ENUM ('ACTIVE', 'SUSPENDED');
+CREATE TABLE "Spa" ("id" UUID NOT NULL, "name" TEXT NOT NULL, "slug" TEXT NOT NULL, "status" "SpaStatus" NOT NULL DEFAULT 'ACTIVE', "timezone" TEXT NOT NULL, "currency" VARCHAR(3) NOT NULL, "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP, "updatedAt" TIMESTAMP(3) NOT NULL, CONSTRAINT "Spa_pkey" PRIMARY KEY ("id"));
+CREATE TABLE "User" ("id" UUID NOT NULL, "spaId" UUID, "firstName" TEXT NOT NULL, "lastName" TEXT NOT NULL, "email" TEXT NOT NULL, "passwordHash" TEXT NOT NULL, "role" "UserRole" NOT NULL, "status" "UserStatus" NOT NULL DEFAULT 'ACTIVE', "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP, "updatedAt" TIMESTAMP(3) NOT NULL, CONSTRAINT "User_pkey" PRIMARY KEY ("id"));
+CREATE TABLE "Professional" ("id" UUID NOT NULL, "spaId" UUID NOT NULL, "userId" UUID NOT NULL, "displayName" TEXT NOT NULL, "commissionRate" DECIMAL(5,2) NOT NULL, "isActive" BOOLEAN NOT NULL DEFAULT true, "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP, "updatedAt" TIMESTAMP(3) NOT NULL, CONSTRAINT "Professional_pkey" PRIMARY KEY ("id"));
+CREATE UNIQUE INDEX "Spa_slug_key" ON "Spa"("slug");
+CREATE UNIQUE INDEX "User_email_key" ON "User"("email");
+CREATE UNIQUE INDEX "User_id_spaId_key" ON "User"("id", "spaId");
+CREATE INDEX "User_spaId_idx" ON "User"("spaId");
+CREATE UNIQUE INDEX "Professional_userId_key" ON "Professional"("userId");
+CREATE UNIQUE INDEX "Professional_userId_spaId_key" ON "Professional"("userId", "spaId");
+CREATE UNIQUE INDEX "Professional_id_spaId_key" ON "Professional"("id", "spaId");
+CREATE INDEX "Professional_spaId_idx" ON "Professional"("spaId");
+ALTER TABLE "User" ADD CONSTRAINT "User_spaId_fkey" FOREIGN KEY ("spaId") REFERENCES "Spa"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE "Professional" ADD CONSTRAINT "Professional_spaId_fkey" FOREIGN KEY ("spaId") REFERENCES "Spa"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE "Professional" ADD CONSTRAINT "Professional_userId_spaId_fkey" FOREIGN KEY ("userId", "spaId") REFERENCES "User"("id", "spaId") ON DELETE RESTRICT ON UPDATE CASCADE;
