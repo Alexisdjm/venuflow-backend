@@ -2,6 +2,9 @@ node_modules/
 dist/
 coverage/
 .env
+.env.*
+!.env.example
+!.env.*.example
 .docker-test-config/
 *.tsbuildinfo
 src/generated/prisma/
