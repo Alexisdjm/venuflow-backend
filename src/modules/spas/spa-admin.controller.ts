@@ -19,6 +19,7 @@ import { PaginationDto } from '../../common/dto/pagination.dto';
 import { PrismaService } from '../../database/prisma/prisma.service';
 import { UsersService } from '../users/users.service';
 import { ProfessionalsService } from '../professionals/professionals.service';
+import { ServicesService } from '../services/services.service';
 import {
   CreateProfessionalDto,
   UpdateProfessionalDto,
@@ -33,6 +34,7 @@ export class SpaAdminController {
     private readonly prisma: PrismaService,
     private readonly users: UsersService,
     private readonly professionals: ProfessionalsService,
+    private readonly services: ServicesService,
   ) {}
   private tenant(u: AuthUser) {
     if (!u.spaId) throw new Error('Missing tenant');
@@ -57,7 +59,7 @@ export class SpaAdminController {
     @CurrentUser() u: AuthUser,
     @Body() d: CreateProfessionalDto,
   ) {
-    return this.professionals.create(this.tenant(u), d);
+    return this.professionals.create(this.tenant(u), u.sub, d);
   }
   @Get('professionals/:id') get(
     @CurrentUser() u: AuthUser,
@@ -70,6 +72,12 @@ export class SpaAdminController {
     @Param('id', ParseUUIDPipe) id: string,
     @Body() d: UpdateProfessionalDto,
   ) {
-    return this.professionals.update(this.tenant(u), id, d);
+    return this.professionals.update(this.tenant(u), u.sub, id, d);
+  }
+  @Get('professionals/:id/services') servicesForProfessional(
+    @CurrentUser() u: AuthUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.services.listForProfessional(this.tenant(u), id);
   }
 }

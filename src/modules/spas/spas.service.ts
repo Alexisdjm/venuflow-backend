@@ -8,15 +8,33 @@ import { PrismaService } from '../../database/prisma/prisma.service';
 import { CreateSpaDto, UpdateSpaDto } from './dto/spa.dto';
 import { ProvisionAdminDto } from './dto/provision-admin.dto';
 import { PaginationDto } from '../../common/dto/pagination.dto';
+import { AuditService } from '../audit/audit.service';
+import { Prisma } from '../../generated/prisma/client';
 @Injectable()
 export class SpasService {
-  constructor(private readonly prisma: PrismaService) {}
-  async create(dto: CreateSpaDto) {
-    try {
-      return await this.prisma.spa.create({ data: dto });
-    } catch {
-      throw new ConflictException('Spa slug already exists');
-    }
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly audit: AuditService,
+  ) {}
+  async create(actorUserId: string, dto: CreateSpaDto) {
+    const spa = await this.prisma.spa
+      .create({ data: dto })
+      .catch((error: unknown) => {
+        if (
+          error instanceof Prisma.PrismaClientKnownRequestError &&
+          error.code === 'P2002'
+        )
+          throw new ConflictException('Spa slug already exists');
+        throw error;
+      });
+    await this.audit.record({
+      actorUserId,
+      spaId: spa.id,
+      action: 'SPA_CREATED',
+      entityType: 'Spa',
+      entityId: spa.id,
+    });
+    return spa;
   }
   async list(q: PaginationDto) {
     const skip = (q.page - 1) * q.limit;
@@ -35,18 +53,31 @@ export class SpasService {
     if (!spa) throw new NotFoundException('Spa not found');
     return spa;
   }
-  async update(id: string, dto: UpdateSpaDto) {
+  async update(actorUserId: string, id: string, dto: UpdateSpaDto) {
     await this.get(id);
-    return this.prisma.spa.update({ where: { id }, data: dto });
+    const spa = await this.prisma.spa.update({ where: { id }, data: dto });
+    await this.audit.record({
+      actorUserId,
+      spaId: id,
+      action: 'SPA_UPDATED',
+      entityType: 'Spa',
+      entityId: id,
+      metadata: { status: dto.status ?? null },
+    });
+    return spa;
   }
-  async provisionAdmin(spaId: string, dto: ProvisionAdminDto) {
+  async provisionAdmin(
+    actorUserId: string,
+    spaId: string,
+    dto: ProvisionAdminDto,
+  ) {
     await this.get(spaId);
     const exists = await this.prisma.user.findFirst({
       where: { spaId, role: 'SPA_ADMIN' },
     });
     if (exists) throw new ConflictException('Spa already has an administrator');
-    try {
-      return await this.prisma.user.create({
+    const admin = await this.prisma.user
+      .create({
         data: {
           spaId,
           firstName: dto.firstName,
@@ -65,9 +96,22 @@ export class SpasService {
           status: true,
           createdAt: true,
         },
+      })
+      .catch((error: unknown) => {
+        if (
+          error instanceof Prisma.PrismaClientKnownRequestError &&
+          error.code === 'P2002'
+        )
+          throw new ConflictException('Email already exists');
+        throw error;
       });
-    } catch {
-      throw new ConflictException('Email already exists');
-    }
+    await this.audit.record({
+      actorUserId,
+      spaId,
+      action: 'SPA_ADMIN_PROVISIONED',
+      entityType: 'User',
+      entityId: admin.id,
+    });
+    return admin;
   }
 }

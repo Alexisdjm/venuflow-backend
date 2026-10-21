@@ -5,6 +5,7 @@ describe('AuthService', () => {
   it('returns a token for valid active credentials', async () => {
     const passwordHash = await argon2.hash('correct-password');
     const prisma = {
+      session: { create: jest.fn().mockResolvedValue({}) },
       user: {
         findUnique: jest.fn().mockResolvedValue({
           id: 'u',
@@ -18,8 +19,11 @@ describe('AuthService', () => {
       },
     };
     const jwt = { signAsync: jest.fn().mockResolvedValue('token') };
+    const config = {
+      get: jest.fn((_key: string, fallback: unknown) => fallback),
+    };
     await expect(
-      new AuthService(prisma as never, jwt as never).login({
+      new AuthService(prisma as never, jwt as never, config as never).login({
         email: 'a@b.com',
         password: 'correct-password',
       }),
@@ -28,9 +32,11 @@ describe('AuthService', () => {
   it('uses the same public error for bad credentials', async () => {
     const prisma = { user: { findUnique: jest.fn().mockResolvedValue(null) } };
     await expect(
-      new AuthService(prisma as never, { signAsync: jest.fn() } as never).login(
-        { email: 'none@b.com', password: 'wrong-password' },
-      ),
+      new AuthService(
+        prisma as never,
+        { signAsync: jest.fn() } as never,
+        { get: jest.fn() } as never,
+      ).login({ email: 'none@b.com', password: 'wrong-password' }),
     ).rejects.toBeInstanceOf(UnauthorizedException);
   });
 });

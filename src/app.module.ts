@@ -8,6 +8,11 @@ import { AuthModule } from './modules/auth/auth.module';
 import { SpasModule } from './modules/spas/spas.module';
 import { ProfileModule } from './modules/users/profile.module';
 import { HealthModule } from './modules/health/health.module';
+import { AuditModule } from './modules/audit/audit.module';
+import { ServicesModule } from './modules/services/services.module';
+import { SchedulesModule } from './modules/schedules/schedules.module';
+import { AvailabilityModule } from './modules/availability/availability.module';
+import { AppointmentsModule } from './modules/appointments/appointments.module';
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true, validate: validateEnvironment }),
@@ -17,6 +22,11 @@ import { HealthModule } from './modules/health/health.module';
     SpasModule,
     ProfileModule,
     HealthModule,
+    AuditModule,
+    ServicesModule,
+    SchedulesModule,
+    AvailabilityModule,
+    AppointmentsModule,
   ],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
 })

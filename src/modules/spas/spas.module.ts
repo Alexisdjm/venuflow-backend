@@ -4,8 +4,9 @@ import { SpaAdminController } from './spa-admin.controller';
 import { SpasService } from './spas.service';
 import { UsersModule } from '../users/users.module';
 import { ProfessionalsModule } from '../professionals/professionals.module';
+import { ServicesModule } from '../services/services.module';
 @Module({
-  imports: [UsersModule, ProfessionalsModule],
+  imports: [UsersModule, ProfessionalsModule, ServicesModule],
   controllers: [PlatformSpasController, SpaAdminController],
   providers: [SpasService],
 })

@@ -17,6 +17,8 @@ import { PaginationDto } from '../../common/dto/pagination.dto';
 import { SpasService } from './spas.service';
 import { CreateSpaDto, UpdateSpaDto } from './dto/spa.dto';
 import { ProvisionAdminDto } from './dto/provision-admin.dto';
+import type { AuthUser } from '../../common/auth.types';
+import { CurrentUser } from '../../common/decorators/current-user.decorator';
 @ApiTags('Platform')
 @ApiBearerAuth()
 @Controller('platform/spas')
@@ -24,8 +26,8 @@ import { ProvisionAdminDto } from './dto/provision-admin.dto';
 @Roles('PLATFORM_ADMIN')
 export class PlatformSpasController {
   constructor(private readonly spas: SpasService) {}
-  @Post() create(@Body() d: CreateSpaDto) {
-    return this.spas.create(d);
+  @Post() create(@CurrentUser() u: AuthUser, @Body() d: CreateSpaDto) {
+    return this.spas.create(u.sub, d);
   }
   @Get() list(@Query() q: PaginationDto) {
     return this.spas.list(q);
@@ -34,15 +36,17 @@ export class PlatformSpasController {
     return this.spas.get(id);
   }
   @Patch(':id') update(
+    @CurrentUser() u: AuthUser,
     @Param('id', ParseUUIDPipe) id: string,
     @Body() d: UpdateSpaDto,
   ) {
-    return this.spas.update(id, d);
+    return this.spas.update(u.sub, id, d);
   }
   @Post(':id/admin') admin(
+    @CurrentUser() u: AuthUser,
     @Param('id', ParseUUIDPipe) id: string,
     @Body() d: ProvisionAdminDto,
   ) {
-    return this.spas.provisionAdmin(id, d);
+    return this.spas.provisionAdmin(u.sub, id, d);
   }
 }

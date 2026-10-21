@@ -20,6 +20,10 @@ class EnvironmentVariables {
   DATABASE_URL!: string;
   @IsString() @MinLength(32) JWT_ACCESS_SECRET!: string;
   @IsString() JWT_ACCESS_EXPIRES_IN = '15m';
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  REFRESH_TOKEN_EXPIRES_DAYS = 30;
   @Transform(({ value }) => value === true || value === 'true')
   @IsBoolean()
   SWAGGER_ENABLED = true;

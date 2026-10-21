@@ -8,13 +8,17 @@ import * as argon2 from 'argon2';
 import { Prisma } from '../../generated/prisma/client';
 import { PrismaService } from '../../database/prisma/prisma.service';
 import { PaginationDto } from '../../common/dto/pagination.dto';
+import { AuditService } from '../audit/audit.service';
 import {
   CreateProfessionalDto,
   UpdateProfessionalDto,
 } from './dto/professional.dto';
 @Injectable()
 export class ProfessionalsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly audit: AuditService,
+  ) {}
   private rate(value: string) {
     const n = new Prisma.Decimal(value);
     if (n.lt(0) || n.gt(100))
@@ -80,9 +84,9 @@ export class ProfessionalsService {
     if (!p) throw new NotFoundException('Professional profile not found');
     return p;
   }
-  async create(spaId: string, d: CreateProfessionalDto) {
-    try {
-      return await this.prisma.$transaction(async (tx) => {
+  async create(spaId: string, actorUserId: string, d: CreateProfessionalDto) {
+    const professional = await this.prisma
+      .$transaction(async (tx) => {
         const user = await tx.user.create({
           data: {
             spaId,
@@ -112,15 +116,33 @@ export class ProfessionalsService {
             },
           },
         });
+      })
+      .catch((error: unknown) => {
+        if (error instanceof BadRequestException) throw error;
+        if (
+          error instanceof Prisma.PrismaClientKnownRequestError &&
+          error.code === 'P2002'
+        )
+          throw new ConflictException('Email already exists');
+        throw error;
       });
-    } catch (e) {
-      if (e instanceof BadRequestException) throw e;
-      throw new ConflictException('Email already exists');
-    }
+    await this.audit.record({
+      spaId,
+      actorUserId,
+      action: 'PROFESSIONAL_CREATED',
+      entityType: 'Professional',
+      entityId: professional.id,
+    });
+    return professional;
   }
-  async update(spaId: string, id: string, d: UpdateProfessionalDto) {
+  async update(
+    spaId: string,
+    actorUserId: string,
+    id: string,
+    d: UpdateProfessionalDto,
+  ) {
     const current = await this.get(spaId, id);
-    return this.prisma.$transaction(async (tx) => {
+    const professional = await this.prisma.$transaction(async (tx) => {
       if (d.isActive !== undefined) {
         await tx.user.update({
           where: { id_spaId: { id: current.userId, spaId } },
@@ -139,5 +161,14 @@ export class ProfessionalsService {
         },
       });
     });
+    await this.audit.record({
+      spaId,
+      actorUserId,
+      action: 'PROFESSIONAL_UPDATED',
+      entityType: 'Professional',
+      entityId: id,
+      metadata: { isActive: d.isActive ?? null },
+    });
+    return professional;
   }
 }

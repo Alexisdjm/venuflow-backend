@@ -1,0 +1,17 @@
+services:
+  postgres-test:
+    image: postgres:17.6-alpine
+    environment:
+      POSTGRES_USER: venueflow_test
+      POSTGRES_PASSWORD: venueflow_test_password
+      POSTGRES_DB: venueflow_test
+    ports:
+      - "127.0.0.1:5433:5432"
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U venueflow_test -d venueflow_test"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+

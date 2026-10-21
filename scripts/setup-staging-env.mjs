@@ -23,6 +23,7 @@ DATABASE_URL=${placeholder}
 # Generated locally. Do not reuse this value in production.
 JWT_ACCESS_SECRET=${jwtSecret}
 JWT_ACCESS_EXPIRES_IN=15m
+REFRESH_TOKEN_EXPIRES_DAYS=30
 
 SWAGGER_ENABLED=true
 CORS_ORIGINS=http://localhost:3001

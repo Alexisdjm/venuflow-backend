@@ -6,6 +6,7 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import type { AuthUser } from '../../common/auth.types';
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
+import { RefreshTokenDto } from './dto/refresh-token.dto';
 @ApiTags('Authentication')
 @Controller('auth')
 export class AuthController {
@@ -14,6 +15,15 @@ export class AuthController {
     @Body() dto: LoginDto,
   ) {
     return this.auth.login(dto);
+  }
+  @Post('refresh')
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
+  refresh(@Body() dto: RefreshTokenDto) {
+    return this.auth.refresh(dto.refreshToken);
+  }
+  @Post('logout')
+  logout(@Body() dto: RefreshTokenDto) {
+    return this.auth.logout(dto.refreshToken);
   }
   @Get('me') @ApiBearerAuth() @UseGuards(AuthGuard('jwt')) me(
     @CurrentUser() user: AuthUser,

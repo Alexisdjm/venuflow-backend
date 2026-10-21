@@ -20,6 +20,11 @@ enum UserStatus {
   ACTIVE
   SUSPENDED
 }
+enum AppointmentStatus {
+  CONFIRMED
+  COMPLETED
+  CANCELLED
+}
 
 model Spa {
   id        String     @id @default(uuid()) @db.Uuid
@@ -30,6 +35,10 @@ model Spa {
   currency  String     @db.VarChar(3)
   users     User[]
   professionals Professional[]
+  services  SpaService[]
+  schedules ProfessionalSchedule[]
+  auditLogs AuditLog[]
+  appointments Appointment[]
   createdAt DateTime   @default(now())
   updatedAt DateTime   @updatedAt
 }
@@ -45,6 +54,8 @@ model User {
   role         UserRole
   status       UserStatus  @default(ACTIVE)
   professional Professional?
+  sessions     Session[]
+  auditLogs    AuditLog[] @relation("AuditActor")
   createdAt    DateTime    @default(now())
   updatedAt    DateTime    @updatedAt
 
@@ -58,6 +69,9 @@ model Professional {
   userId         String   @unique @db.Uuid
   spa            Spa      @relation(fields: [spaId], references: [id], onDelete: Restrict)
   user           User     @relation(fields: [userId, spaId], references: [id, spaId], onDelete: Restrict)
+  services       ProfessionalService[]
+  schedules      ProfessionalSchedule[]
+  appointments   Appointment[]
   displayName    String
   commissionRate Decimal  @db.Decimal(5, 2)
   isActive       Boolean  @default(true)
@@ -67,4 +81,110 @@ model Professional {
   @@unique([id, spaId])
   @@unique([userId, spaId])
   @@index([spaId])
+}
+
+model Session {
+  id                String    @id @default(uuid()) @db.Uuid
+  userId            String    @db.Uuid
+  user              User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  familyId          String    @db.Uuid
+  tokenHash         String    @unique @db.VarChar(64)
+  expiresAt         DateTime
+  revokedAt         DateTime?
+  replacedByTokenId String?   @db.Uuid
+  createdAt         DateTime  @default(now())
+
+  @@index([userId])
+  @@index([familyId])
+}
+
+model AuditLog {
+  id          String   @id @default(uuid()) @db.Uuid
+  spaId       String?  @db.Uuid
+  spa         Spa?     @relation(fields: [spaId], references: [id], onDelete: SetNull)
+  actorUserId String?  @db.Uuid
+  actor       User?    @relation("AuditActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+  action      String
+  entityType  String
+  entityId    String?
+  metadata    Json?
+  ipAddress   String?
+  userAgent   String?
+  createdAt   DateTime @default(now())
+
+  @@index([spaId, createdAt])
+  @@index([actorUserId, createdAt])
+}
+
+model SpaService {
+  id              String   @id @default(uuid()) @db.Uuid
+  spaId           String   @db.Uuid
+  spa             Spa      @relation(fields: [spaId], references: [id], onDelete: Restrict)
+  name            String
+  description     String?
+  durationMinutes Int
+  price           Decimal  @db.Decimal(12, 2)
+  isActive        Boolean  @default(true)
+  professionals   ProfessionalService[]
+  appointments    Appointment[]
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([id, spaId])
+  @@unique([spaId, name])
+  @@index([spaId])
+}
+
+model ProfessionalService {
+  spaId          String       @db.Uuid
+  professionalId String       @db.Uuid
+  serviceId      String       @db.Uuid
+  professional   Professional @relation(fields: [professionalId, spaId], references: [id, spaId], onDelete: Cascade)
+  service        SpaService   @relation(fields: [serviceId, spaId], references: [id, spaId], onDelete: Cascade)
+  createdAt      DateTime     @default(now())
+
+  @@id([professionalId, serviceId])
+  @@index([spaId])
+}
+
+model ProfessionalSchedule {
+  id             String       @id @default(uuid()) @db.Uuid
+  spaId          String       @db.Uuid
+  professionalId String       @db.Uuid
+  spa            Spa          @relation(fields: [spaId], references: [id], onDelete: Restrict)
+  professional   Professional @relation(fields: [professionalId, spaId], references: [id, spaId], onDelete: Cascade)
+  dayOfWeek      Int
+  startMinute    Int
+  endMinute      Int
+  isActive       Boolean      @default(true)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  @@unique([id, spaId])
+  @@unique([professionalId, dayOfWeek, startMinute, endMinute])
+  @@index([spaId, professionalId, dayOfWeek])
+}
+
+model Appointment {
+  id             String            @id @default(uuid()) @db.Uuid
+  spaId          String            @db.Uuid
+  professionalId String            @db.Uuid
+  serviceId      String            @db.Uuid
+  spa            Spa               @relation(fields: [spaId], references: [id], onDelete: Restrict)
+  professional   Professional      @relation(fields: [professionalId, spaId], references: [id, spaId], onDelete: Restrict)
+  service        SpaService        @relation(fields: [serviceId, spaId], references: [id, spaId], onDelete: Restrict)
+  customerName   String
+  customerPhone  String
+  customerEmail  String?
+  notes          String?
+  startAt        DateTime
+  endAt          DateTime
+  status         AppointmentStatus @default(CONFIRMED)
+  createdById    String            @db.Uuid
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+
+  @@unique([id, spaId])
+  @@index([spaId, startAt])
+  @@index([professionalId, startAt])
 }

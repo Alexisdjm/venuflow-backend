@@ -5,7 +5,7 @@ describe('ProfessionalsService tenant isolation', () => {
     const prisma = {
       professional: { findUnique: jest.fn().mockResolvedValue(null) },
     };
-    const service = new ProfessionalsService(prisma as never);
+    const service = new ProfessionalsService(prisma as never, {} as never);
     await expect(service.get('spa-a', 'record-b')).rejects.toBeInstanceOf(
       NotFoundException,
     );

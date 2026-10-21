@@ -20,4 +20,3 @@ volumes:
   venueflow_postgres:
 networks:
   venueflow_internal:
-    internal: true
