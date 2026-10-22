@@ -1,13 +1,18 @@
 import {
   IsEmail,
   IsIn,
+  IsInt,
   IsISO8601,
   IsOptional,
   IsString,
   IsUUID,
   Matches,
   MaxLength,
+  Max,
+  Min,
   MinLength,
+  IsDivisibleBy,
+  IsDecimal,
 } from 'class-validator';
 export class ListAppointmentsDto {
   @IsOptional() @Matches(/^\d{4}-\d{2}-\d{2}$/) date?: string;
@@ -18,6 +23,13 @@ export class CreateAppointmentDto {
   @IsUUID() serviceId!: string;
   @IsOptional() @IsUUID() professionalId?: string;
   @IsISO8601({ strict: true }) startAt!: string;
+  @IsOptional()
+  @IsInt()
+  @Min(30)
+  @Max(720)
+  @IsDivisibleBy(30)
+  durationMinutes?: number;
+  @IsOptional() @IsDecimal({ decimal_digits: '0,2' }) additionalPrice?: string;
   @IsString() @MinLength(2) @MaxLength(120) customerName!: string;
   @IsString() @MinLength(5) @MaxLength(40) customerPhone!: string;
   @IsOptional() @IsEmail() customerEmail?: string;

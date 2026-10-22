@@ -22,6 +22,18 @@ export class ServicesService {
       throw new BadRequestException('price must be zero or greater');
     return amount;
   }
+  private async validateDuration(spaId: string, durationMinutes?: number) {
+    if (durationMinutes === undefined) return;
+    const spa = await this.prisma.spa.findUniqueOrThrow({
+      where: { id: spaId },
+      select: { openingMinute: true, closingMinute: true },
+    });
+    const maximumDuration = spa.closingMinute - spa.openingMinute;
+    if (durationMinutes > maximumDuration)
+      throw new BadRequestException(
+        `durationMinutes cannot exceed the spa operating window (${maximumDuration} minutes)`,
+      );
+  }
   async list(spaId: string, query: PaginationDto) {
     const where = { spaId };
     const [data, total] = await this.prisma.$transaction([
@@ -43,9 +55,23 @@ export class ServicesService {
     return service;
   }
   async create(spaId: string, actorUserId: string, dto: CreateServiceDto) {
+    const durationType = dto.durationType ?? 'FIXED';
+    if (durationType === 'FIXED' && dto.durationMinutes === undefined)
+      throw new BadRequestException(
+        'durationMinutes is required for fixed-duration services',
+      );
+    await this.validateDuration(spaId, dto.durationMinutes);
     const service = await this.prisma.spaService
       .create({
-        data: { spaId, ...dto, price: this.money(dto.price) },
+        data: {
+          spaId,
+          ...dto,
+          durationType,
+          priceType: dto.priceType ?? 'FIXED',
+          durationMinutes:
+            durationType === 'VARIABLE' ? null : dto.durationMinutes,
+          price: this.money(dto.price),
+        },
       })
       .catch((error: unknown) => {
         if (error instanceof BadRequestException) throw error;
@@ -73,11 +99,23 @@ export class ServicesService {
     id: string,
     dto: UpdateServiceDto,
   ) {
-    await this.get(spaId, id);
+    const current = await this.get(spaId, id);
+    const durationType = dto.durationType ?? current.durationType;
+    const durationMinutes =
+      durationType === 'VARIABLE'
+        ? null
+        : (dto.durationMinutes ?? current.durationMinutes);
+    if (durationType === 'FIXED' && durationMinutes === null)
+      throw new BadRequestException(
+        'durationMinutes is required for fixed-duration services',
+      );
+    await this.validateDuration(spaId, durationMinutes ?? undefined);
     const service = await this.prisma.spaService.update({
       where: { id_spaId: { id, spaId } },
       data: {
         ...dto,
+        durationType,
+        durationMinutes,
         price: dto.price === undefined ? undefined : this.money(dto.price),
       },
     });

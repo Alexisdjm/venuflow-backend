@@ -44,7 +44,9 @@ export class SpaAdminController {
     if (!u.spaId) throw new Error('Missing tenant');
     return u.spaId;
   }
-  @Get() getSpa(@CurrentUser() u: AuthUser) {
+  @Get()
+  @Roles('SPA_ADMIN', 'PROFESSIONAL')
+  getSpa(@CurrentUser() u: AuthUser) {
     return this.prisma.spa.findUniqueOrThrow({ where: { id: this.tenant(u) } });
   }
   @Patch('settings/operating-hours') updateOperatingHours(

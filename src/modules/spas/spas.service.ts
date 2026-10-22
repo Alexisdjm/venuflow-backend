@@ -89,6 +89,17 @@ export class SpasService {
       throw new ConflictException(
         'Adjust existing professional schedules before reducing the operating hours',
       );
+    const serviceOutsideHours = await this.prisma.spaService.findFirst({
+      where: {
+        spaId,
+        isActive: true,
+        durationMinutes: { gt: closingMinute - openingMinute },
+      },
+    });
+    if (serviceOutsideHours)
+      throw new ConflictException(
+        'Adjust existing service durations before reducing the operating hours',
+      );
     const spa = await this.prisma.spa.update({
       where: { id: spaId },
       data: { openingMinute, closingMinute },

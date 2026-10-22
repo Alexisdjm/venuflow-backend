@@ -14,6 +14,7 @@ describe('PostgreSQL security integration', () => {
     professionalA: string,
     professionalB: string,
     bookingService: string,
+    variableService: string,
     bookingAccessToken: string;
   beforeAll(async () => {
     const module = await Test.createTestingModule({
@@ -98,11 +99,30 @@ describe('PostgreSQL security integration', () => {
         },
       })
     ).id;
+    variableService = (
+      await prisma.spaService.create({
+        data: {
+          spaId: spaA,
+          name: 'Variable booking service',
+          durationType: 'VARIABLE',
+          durationMinutes: null,
+          priceType: 'VARIABLE',
+          price: '80',
+        },
+      })
+    ).id;
     await prisma.professionalService.create({
       data: {
         spaId: spaA,
         professionalId: professionalA,
         serviceId: bookingService,
+      },
+    });
+    await prisma.professionalService.create({
+      data: {
+        spaId: spaA,
+        professionalId: professionalA,
+        serviceId: variableService,
       },
     });
     await prisma.professionalSchedule.createMany({
@@ -341,5 +361,57 @@ describe('PostgreSQL security integration', () => {
       where: { id: created.body.id as string },
     });
     expect(stored.status).toBe('CONFIRMED');
+  });
+  it('requires and applies a selected duration for variable services', async () => {
+    const start = DateTime.now()
+      .setZone('America/Caracas')
+      .plus({ days: 7 })
+      .startOf('day')
+      .plus({ hours: 9 });
+    const date = start.toISODate();
+    await request(app.getHttpServer())
+      .get(
+        `/api/v1/spa/availability?date=${date}&serviceId=${variableService}&intervalMinutes=30`,
+      )
+      .set('Authorization', `Bearer ${bookingAccessToken}`)
+      .expect(400);
+    const availability = await request(app.getHttpServer())
+      .get(
+        `/api/v1/spa/availability?date=${date}&serviceId=${variableService}&durationMinutes=300&intervalMinutes=30`,
+      )
+      .set('Authorization', `Bearer ${bookingAccessToken}`)
+      .expect(200);
+    expect(availability.body.durationMinutes).toBe(300);
+    const slot = availability.body.data.find(
+      (item: { start: string }) => item.start === start.toUTC().toISO(),
+    );
+    expect(slot).toBeDefined();
+    const bookingPayload = {
+      serviceId: variableService,
+      professionalId: professionalA,
+      startAt: slot.start,
+      durationMinutes: 300,
+      customerName: 'Variable Duration',
+      customerPhone: '+58000000000',
+    };
+    await request(app.getHttpServer())
+      .post('/api/v1/spa/appointments')
+      .set('Authorization', `Bearer ${bookingAccessToken}`)
+      .send(bookingPayload)
+      .expect(400);
+    const created = await request(app.getHttpServer())
+      .post('/api/v1/spa/appointments')
+      .set('Authorization', `Bearer ${bookingAccessToken}`)
+      .send({
+        ...bookingPayload,
+        additionalPrice: '25.50',
+      })
+      .expect(201);
+    expect(
+      (new Date(created.body.endAt).getTime() -
+        new Date(created.body.startAt).getTime()) /
+        60000,
+    ).toBe(300);
+    expect(Number(created.body.servicePrice)).toBe(105.5);
   });
 });

@@ -1,4 +1,8 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { DateTime } from 'luxon';
 import { PrismaService } from '../../database/prisma/prisma.service';
 import { AvailabilityQueryDto } from './dto/availability-query.dto';
@@ -14,6 +18,18 @@ export class AvailabilityService {
     });
     if (!service || !service.isActive)
       throw new NotFoundException('Service not found');
+    const durationMinutes =
+      service.durationType === 'VARIABLE'
+        ? q.durationMinutes
+        : service.durationMinutes;
+    if (durationMinutes === undefined || durationMinutes === null)
+      throw new BadRequestException(
+        'durationMinutes is required for variable-duration services',
+      );
+    if (durationMinutes > spa.closingMinute - spa.openingMinute)
+      throw new BadRequestException(
+        'durationMinutes cannot exceed the spa operating window',
+      );
     const localDate = DateTime.fromISO(q.date, { zone: spa.timezone }).startOf(
       'day',
     );
@@ -53,11 +69,11 @@ export class AvailabilityService {
         const slots = [];
         for (
           let minute = schedule.startMinute;
-          minute + service.durationMinutes <= schedule.endMinute;
+          minute + durationMinutes <= schedule.endMinute;
           minute += q.intervalMinutes
         ) {
           const start = localDate.plus({ minutes: minute });
-          const end = start.plus({ minutes: service.durationMinutes });
+          const end = start.plus({ minutes: durationMinutes });
           if (start < now) continue;
           const occupied = appointments.some(
             (appointment) =>
@@ -81,7 +97,7 @@ export class AvailabilityService {
     return {
       date: q.date,
       timezone: spa.timezone,
-      durationMinutes: service.durationMinutes,
+      durationMinutes,
       data,
     };
   }

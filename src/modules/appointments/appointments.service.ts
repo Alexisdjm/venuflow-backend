@@ -141,7 +141,15 @@ export class AppointmentsService {
       where: { spaId: u.spaId!, professionalId, status, ...range },
       include: {
         professional: { select: { displayName: true } },
-        service: { select: { name: true, durationMinutes: true, price: true } },
+        service: {
+          select: {
+            name: true,
+            durationType: true,
+            durationMinutes: true,
+            priceType: true,
+            price: true,
+          },
+        },
       },
       orderBy: { startAt: 'asc' },
     });
@@ -156,7 +164,32 @@ export class AppointmentsService {
       where: { id: spaId },
       select: { timezone: true, openingMinute: true, closingMinute: true },
     });
-    const slot = this.validateSlot(spa, d.startAt, service.durationMinutes);
+    const durationMinutes =
+      service.durationType === 'VARIABLE'
+        ? d.durationMinutes
+        : service.durationMinutes;
+    if (durationMinutes === undefined || durationMinutes === null)
+      throw new BadRequestException(
+        'durationMinutes is required for variable-duration services',
+      );
+    let servicePrice = service.price;
+    if (service.priceType === 'VARIABLE') {
+      if (d.additionalPrice === undefined)
+        throw new BadRequestException(
+          'additionalPrice is required for variable-price services',
+        );
+      const additionalPrice = new Prisma.Decimal(d.additionalPrice);
+      if (additionalPrice.isNegative())
+        throw new BadRequestException(
+          'additionalPrice must be zero or greater',
+        );
+      servicePrice = service.price.plus(additionalPrice);
+    } else if (d.additionalPrice !== undefined) {
+      throw new BadRequestException(
+        'additionalPrice is only allowed for variable-price services',
+      );
+    }
+    const slot = this.validateSlot(spa, d.startAt, durationMinutes);
     let candidates: string[];
     if (u.role === 'PROFESSIONAL') {
       const own = await this.own(u);
@@ -195,14 +228,20 @@ export class AppointmentsService {
             notes: d.notes,
             startAt: slot.start.toUTC().toJSDate(),
             endAt: slot.end.toUTC().toJSDate(),
-            servicePrice: service.price,
+            servicePrice,
             commissionRate: assignment.professional.commissionRate,
             createdById: u.sub,
           },
           include: {
             professional: { select: { displayName: true } },
             service: {
-              select: { name: true, durationMinutes: true, price: true },
+              select: {
+                name: true,
+                durationType: true,
+                durationMinutes: true,
+                priceType: true,
+                price: true,
+              },
             },
           },
         });
@@ -271,7 +310,10 @@ export class AppointmentsService {
         throw new BadRequestException(
           'Appointments cannot be rescheduled to the past',
         );
-      const end = start.plus({ minutes: current.service.durationMinutes });
+      const appointmentDuration = Math.round(
+        (current.endAt.getTime() - current.startAt.getTime()) / 60000,
+      );
+      const end = start.plus({ minutes: appointmentDuration });
       const assignment = await this.prisma.professionalService.findFirst({
         where: {
           spaId,
@@ -291,7 +333,7 @@ export class AppointmentsService {
         }),
         local = start.setZone(spa.timezone),
         startMinute = local.hour * 60 + local.minute,
-        endMinute = startMinute + current.service.durationMinutes;
+        endMinute = startMinute + appointmentDuration;
       const schedule = await this.prisma.professionalSchedule.findFirst({
         where: {
           spaId,
