@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   Injectable,
   NotFoundException,
@@ -63,6 +64,42 @@ export class SpasService {
       entityType: 'Spa',
       entityId: id,
       metadata: { status: dto.status ?? null },
+    });
+    return spa;
+  }
+  async updateOperatingHours(
+    actorUserId: string,
+    spaId: string,
+    openingMinute: number,
+    closingMinute: number,
+  ) {
+    if (openingMinute >= closingMinute)
+      throw new BadRequestException('Opening time must be before closing time');
+    const scheduleOutsideHours =
+      await this.prisma.professionalSchedule.findFirst({
+        where: {
+          spaId,
+          OR: [
+            { startMinute: { lt: openingMinute } },
+            { endMinute: { gt: closingMinute } },
+          ],
+        },
+      });
+    if (scheduleOutsideHours)
+      throw new ConflictException(
+        'Adjust existing professional schedules before reducing the operating hours',
+      );
+    const spa = await this.prisma.spa.update({
+      where: { id: spaId },
+      data: { openingMinute, closingMinute },
+    });
+    await this.audit.record({
+      actorUserId,
+      spaId,
+      action: 'SPA_OPERATING_HOURS_UPDATED',
+      entityType: 'Spa',
+      entityId: spaId,
+      metadata: { openingMinute, closingMinute },
     });
     return spa;
   }

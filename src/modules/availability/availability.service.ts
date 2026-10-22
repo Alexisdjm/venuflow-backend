@@ -20,7 +20,12 @@ export class AvailabilityService {
     if (!localDate.isValid) throw new NotFoundException('Invalid local date');
     const dayOfWeek = localDate.weekday % 7;
     const assignments = await this.prisma.professionalService.findMany({
-      where: { spaId, serviceId: service.id, professionalId: q.professionalId },
+      where: {
+        spaId,
+        serviceId: service.id,
+        professionalId: q.professionalId,
+        professional: { isActive: true },
+      },
       include: {
         professional: {
           include: {
@@ -33,6 +38,7 @@ export class AvailabilityService {
       },
     });
     const dayEnd = localDate.plus({ days: 1 });
+    const now = DateTime.now().setZone(spa.timezone);
     const appointments = await this.prisma.appointment.findMany({
       where: {
         spaId,
@@ -52,20 +58,22 @@ export class AvailabilityService {
         ) {
           const start = localDate.plus({ minutes: minute });
           const end = start.plus({ minutes: service.durationMinutes });
+          if (start < now) continue;
           const occupied = appointments.some(
             (appointment) =>
               appointment.professionalId === professional.id &&
               appointment.startAt < end.toJSDate() &&
               appointment.endAt > start.toJSDate(),
           );
-          if (!occupied) slots.push({
-            professionalId: professional.id,
-            serviceId: service.id,
-            start: start.toUTC().toISO(),
-            end: end.toUTC().toISO(),
-            localStart: start.toISO(),
-            localEnd: end.toISO(),
-          });
+          if (!occupied)
+            slots.push({
+              professionalId: professional.id,
+              serviceId: service.id,
+              start: start.toUTC().toISO(),
+              end: end.toUTC().toISO(),
+              localStart: start.toISO(),
+              localEnd: end.toISO(),
+            });
         }
         return slots;
       }),

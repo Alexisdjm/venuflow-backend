@@ -14,10 +14,18 @@ import { PrismaService } from '../../database/prisma/prisma.service';
 @UseGuards(AuthGuard('jwt'), RolesGuard)
 @Roles('SPA_ADMIN', 'PROFESSIONAL')
 export class AvailabilityController {
-  constructor(private readonly availability: AvailabilityService, private readonly prisma: PrismaService) {}
-  @Get() async get(@CurrentUser() u: AuthUser, @Query() q: AvailabilityQueryDto) {
+  constructor(
+    private readonly availability: AvailabilityService,
+    private readonly prisma: PrismaService,
+  ) {}
+  @Get() async get(
+    @CurrentUser() u: AuthUser,
+    @Query() q: AvailabilityQueryDto,
+  ) {
     if (u.role === 'PROFESSIONAL') {
-      const professional = await this.prisma.professional.findFirstOrThrow({ where: { spaId: u.spaId!, userId: u.sub } });
+      const professional = await this.prisma.professional.findFirstOrThrow({
+        where: { spaId: u.spaId!, userId: u.sub },
+      });
       q.professionalId = professional.id;
     }
     return this.availability.get(u.spaId!, q);

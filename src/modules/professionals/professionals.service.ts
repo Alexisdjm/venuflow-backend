@@ -11,6 +11,7 @@ import { PaginationDto } from '../../common/dto/pagination.dto';
 import { AuditService } from '../audit/audit.service';
 import {
   CreateProfessionalDto,
+  CreateOwnProfessionalDto,
   UpdateProfessionalDto,
 } from './dto/professional.dto';
 @Injectable()
@@ -40,6 +41,7 @@ export class ProfessionalsService {
               lastName: true,
               email: true,
               status: true,
+              role: true,
             },
           },
         },
@@ -59,6 +61,7 @@ export class ProfessionalsService {
             lastName: true,
             email: true,
             status: true,
+            role: true,
           },
         },
       },
@@ -77,6 +80,7 @@ export class ProfessionalsService {
             lastName: true,
             email: true,
             status: true,
+            role: true,
           },
         },
       },
@@ -135,6 +139,51 @@ export class ProfessionalsService {
     });
     return professional;
   }
+  async createForAdmin(
+    spaId: string,
+    actorUserId: string,
+    d: CreateOwnProfessionalDto,
+  ) {
+    const user = await this.prisma.user.findFirst({
+      where: { id: actorUserId, spaId, role: 'SPA_ADMIN' },
+    });
+    if (!user) throw new NotFoundException('Spa administrator not found');
+    const exists = await this.prisma.professional.findUnique({
+      where: { userId: actorUserId },
+    });
+    if (exists)
+      throw new ConflictException(
+        'The administrator already has a professional profile',
+      );
+    const professional = await this.prisma.professional.create({
+      data: {
+        spaId,
+        userId: actorUserId,
+        displayName: d.displayName,
+        commissionRate: this.rate(d.commissionRate),
+      },
+      include: {
+        user: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            email: true,
+            status: true,
+            role: true,
+          },
+        },
+      },
+    });
+    await this.audit.record({
+      spaId,
+      actorUserId,
+      action: 'SPA_ADMIN_PROFESSIONAL_PROFILE_CREATED',
+      entityType: 'Professional',
+      entityId: professional.id,
+    });
+    return professional;
+  }
   async update(
     spaId: string,
     actorUserId: string,
@@ -143,7 +192,7 @@ export class ProfessionalsService {
   ) {
     const current = await this.get(spaId, id);
     const professional = await this.prisma.$transaction(async (tx) => {
-      if (d.isActive !== undefined) {
+      if (d.isActive !== undefined && current.user.role === 'PROFESSIONAL') {
         await tx.user.update({
           where: { id_spaId: { id: current.userId, spaId } },
           data: { status: d.isActive ? 'ACTIVE' : 'SUSPENDED' },

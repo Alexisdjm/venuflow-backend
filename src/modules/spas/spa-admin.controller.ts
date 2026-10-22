@@ -20,8 +20,11 @@ import { PrismaService } from '../../database/prisma/prisma.service';
 import { UsersService } from '../users/users.service';
 import { ProfessionalsService } from '../professionals/professionals.service';
 import { ServicesService } from '../services/services.service';
+import { SpasService } from './spas.service';
+import { UpdateOperatingHoursDto } from './dto/operating-hours.dto';
 import {
   CreateProfessionalDto,
+  CreateOwnProfessionalDto,
   UpdateProfessionalDto,
 } from '../professionals/dto/professional.dto';
 @ApiTags('Spa administration')
@@ -35,6 +38,7 @@ export class SpaAdminController {
     private readonly users: UsersService,
     private readonly professionals: ProfessionalsService,
     private readonly services: ServicesService,
+    private readonly spas: SpasService,
   ) {}
   private tenant(u: AuthUser) {
     if (!u.spaId) throw new Error('Missing tenant');
@@ -42,6 +46,17 @@ export class SpaAdminController {
   }
   @Get() getSpa(@CurrentUser() u: AuthUser) {
     return this.prisma.spa.findUniqueOrThrow({ where: { id: this.tenant(u) } });
+  }
+  @Patch('settings/operating-hours') updateOperatingHours(
+    @CurrentUser() u: AuthUser,
+    @Body() d: UpdateOperatingHoursDto,
+  ) {
+    return this.spas.updateOperatingHours(
+      u.sub,
+      this.tenant(u),
+      d.openingMinute,
+      d.closingMinute,
+    );
   }
   @Get('users') listUsers(
     @CurrentUser() u: AuthUser,
@@ -60,6 +75,12 @@ export class SpaAdminController {
     @Body() d: CreateProfessionalDto,
   ) {
     return this.professionals.create(this.tenant(u), u.sub, d);
+  }
+  @Post('professionals/me') createOwnProfessionalProfile(
+    @CurrentUser() u: AuthUser,
+    @Body() d: CreateOwnProfessionalDto,
+  ) {
+    return this.professionals.createForAdmin(this.tenant(u), u.sub, d);
   }
   @Get('professionals/:id') get(
     @CurrentUser() u: AuthUser,

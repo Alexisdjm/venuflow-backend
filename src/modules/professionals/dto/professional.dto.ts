@@ -16,6 +16,10 @@ export class CreateProfessionalDto {
   @IsString() @MinLength(2) displayName!: string;
   @IsDecimal({ decimal_digits: '0,2' }) commissionRate!: string;
 }
+export class CreateOwnProfessionalDto {
+  @IsString() @MinLength(2) displayName!: string;
+  @IsDecimal({ decimal_digits: '0,2' }) commissionRate!: string;
+}
 export class UpdateProfessionalDto {
   @IsOptional() @IsString() @MinLength(2) displayName?: string;
   @IsOptional() @IsDecimal({ decimal_digits: '0,2' }) commissionRate?: string;

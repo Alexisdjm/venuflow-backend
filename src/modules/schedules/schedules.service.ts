@@ -34,6 +34,20 @@ export class SchedulesService {
     if (!value) throw new NotFoundException('Professional not found');
     return value;
   }
+  private async assertOperatingHours(
+    spaId: string,
+    startMinute: number,
+    endMinute: number,
+  ) {
+    const spa = await this.prisma.spa.findUniqueOrThrow({
+      where: { id: spaId },
+      select: { openingMinute: true, closingMinute: true },
+    });
+    if (startMinute < spa.openingMinute || endMinute > spa.closingMinute)
+      throw new BadRequestException(
+        'Schedule must be within the spa operating hours',
+      );
+  }
   async list(spaId: string, professionalId: string) {
     await this.professional(spaId, professionalId);
     return (
@@ -62,6 +76,7 @@ export class SchedulesService {
       endMinute = this.minutes(dto.endTime);
     if (startMinute >= endMinute)
       throw new BadRequestException('startTime must be before endTime');
+    await this.assertOperatingHours(spaId, startMinute, endMinute);
     const overlap = await this.prisma.professionalSchedule.findFirst({
       where: {
         spaId,
@@ -111,6 +126,7 @@ export class SchedulesService {
       : current.endMinute;
     if (startMinute >= endMinute)
       throw new BadRequestException('startTime must be before endTime');
+    await this.assertOperatingHours(spaId, startMinute, endMinute);
     const active = dto.isActive ?? current.isActive;
     if (active) {
       const overlap = await this.prisma.professionalSchedule.findFirst({
