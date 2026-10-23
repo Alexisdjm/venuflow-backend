@@ -368,6 +368,28 @@ describe('PostgreSQL security integration', () => {
     });
     expect(stored.status).toBe('CONFIRMED');
   });
+  it('rejects rescheduling outside exact intervals or operating hours', async () => {
+    const customer = await prisma.customer.findFirstOrThrow({
+      where: { spaId: spaA, nationalId: '12345671' },
+    });
+    const appointment = await prisma.appointment.findFirstOrThrow({
+      where: { spaId: spaA, customerId: customer.id },
+    });
+    const localDay = DateTime.now()
+      .setZone('America/Caracas')
+      .plus({ days: 9 })
+      .startOf('day');
+    await request(app.getHttpServer())
+      .patch(`/api/v1/spa/appointments/${appointment.id}`)
+      .set('Authorization', `Bearer ${bookingAccessToken}`)
+      .send({ startAt: localDay.plus({ hours: 14, seconds: 15 }).toISO() })
+      .expect(400);
+    await request(app.getHttpServer())
+      .patch(`/api/v1/spa/appointments/${appointment.id}`)
+      .set('Authorization', `Bearer ${bookingAccessToken}`)
+      .send({ startAt: localDay.plus({ hours: 17, minutes: 30 }).toISO() })
+      .expect(409);
+  });
   it('reuses an existing customer and exposes customer history', async () => {
     const customer = await prisma.customer.findFirstOrThrow({
       where: { spaId: spaA, nationalId: '12345671' },
@@ -411,6 +433,21 @@ describe('PostgreSQL security integration', () => {
     const customer = await prisma.customer.findFirstOrThrow({
       where: { spaId: spaA, nationalId: '12345671' },
     });
+    const completed = await prisma.appointment.findFirstOrThrow({
+      where: { customerId: customer.id },
+    });
+    await prisma.appointment.update({
+      where: { id: completed.id },
+      data: { status: 'COMPLETED' },
+    });
+    await request(app.getHttpServer())
+      .delete(`/api/v1/spa/customers/${customer.id}`)
+      .set('Authorization', `Bearer ${bookingAccessToken}`)
+      .expect(409);
+    await prisma.appointment.update({
+      where: { id: completed.id },
+      data: { status: 'CONFIRMED' },
+    });
     await request(app.getHttpServer())
       .delete(`/api/v1/spa/customers/${customer.id}`)
       .set('Authorization', `Bearer ${bookingAccessToken}`)
@@ -422,6 +459,16 @@ describe('PostgreSQL security integration', () => {
     expect(
       await prisma.appointment.count({ where: { customerId: customer.id } }),
     ).toBe(0);
+  });
+  it('returns a conflict when a service is renamed to an existing name', async () => {
+    const variable = await prisma.spaService.findUniqueOrThrow({
+      where: { id: variableService },
+    });
+    await request(app.getHttpServer())
+      .patch(`/api/v1/spa/services/${bookingService}`)
+      .set('Authorization', `Bearer ${bookingAccessToken}`)
+      .send({ name: variable.name })
+      .expect(409);
   });
   it('requires and applies a selected duration for variable services', async () => {
     const start = DateTime.now()

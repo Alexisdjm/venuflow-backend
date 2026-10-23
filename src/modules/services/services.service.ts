@@ -110,15 +110,26 @@ export class ServicesService {
         'durationMinutes is required for fixed-duration services',
       );
     await this.validateDuration(spaId, durationMinutes ?? undefined);
-    const service = await this.prisma.spaService.update({
-      where: { id_spaId: { id, spaId } },
-      data: {
-        ...dto,
-        durationType,
-        durationMinutes,
-        price: dto.price === undefined ? undefined : this.money(dto.price),
-      },
-    });
+    const service = await this.prisma.spaService
+      .update({
+        where: { id_spaId: { id, spaId } },
+        data: {
+          ...dto,
+          durationType,
+          durationMinutes,
+          price: dto.price === undefined ? undefined : this.money(dto.price),
+        },
+      })
+      .catch((error: unknown) => {
+        if (
+          error instanceof Prisma.PrismaClientKnownRequestError &&
+          error.code === 'P2002'
+        )
+          throw new ConflictException(
+            'A service with this name already exists',
+          );
+        throw error;
+      });
     await this.audit.record({
       spaId,
       actorUserId,

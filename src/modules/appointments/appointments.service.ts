@@ -332,19 +332,18 @@ export class AppointmentsService {
         throw new ConflictException(
           'Only confirmed appointments can be rescheduled',
         );
-      const start = DateTime.fromJSDate(
-        d.startAt ? new Date(d.startAt) : current.startAt,
-      );
-      if (!start.isValid || start.minute % 30 !== 0)
-        throw new BadRequestException('startAt must use a 30-minute interval');
-      if (start.toUTC() < DateTime.utc())
-        throw new BadRequestException(
-          'Appointments cannot be rescheduled to the past',
-        );
       const appointmentDuration = Math.round(
         (current.endAt.getTime() - current.startAt.getTime()) / 60000,
       );
-      const end = start.plus({ minutes: appointmentDuration });
+      const spa = await this.prisma.spa.findUniqueOrThrow({
+        where: { id: spaId },
+        select: { timezone: true, openingMinute: true, closingMinute: true },
+      });
+      const slot = this.validateSlot(
+        spa,
+        d.startAt ?? current.startAt,
+        appointmentDuration,
+      );
       const assignment = await this.prisma.professionalService.findFirst({
         where: {
           spaId,
@@ -359,20 +358,14 @@ export class AppointmentsService {
           'The professional does not perform this service',
         );
       commissionRate = assignment.professional.commissionRate;
-      const spa = await this.prisma.spa.findUniqueOrThrow({
-          where: { id: spaId },
-        }),
-        local = start.setZone(spa.timezone),
-        startMinute = local.hour * 60 + local.minute,
-        endMinute = startMinute + appointmentDuration;
       const schedule = await this.prisma.professionalSchedule.findFirst({
         where: {
           spaId,
           professionalId: targetProfessionalId,
-          dayOfWeek: local.weekday % 7,
+          dayOfWeek: slot.local.weekday % 7,
           isActive: true,
-          startMinute: { lte: startMinute },
-          endMinute: { gte: endMinute },
+          startMinute: { lte: slot.startMinute },
+          endMinute: { gte: slot.endMinute },
         },
       });
       if (!schedule)
@@ -385,16 +378,16 @@ export class AppointmentsService {
           spaId,
           professionalId: targetProfessionalId,
           status: { not: 'CANCELLED' },
-          startAt: { lt: end.toUTC().toJSDate() },
-          endAt: { gt: start.toUTC().toJSDate() },
+          startAt: { lt: slot.end.toUTC().toJSDate() },
+          endAt: { gt: slot.start.toUTC().toJSDate() },
         },
       });
       if (conflict)
         throw new ConflictException(
           'The professional is not available at the new time',
         );
-      startAt = start.toUTC().toJSDate();
-      endAt = end.toUTC().toJSDate();
+      startAt = slot.start.toUTC().toJSDate();
+      endAt = slot.end.toUTC().toJSDate();
     }
     let value;
     try {

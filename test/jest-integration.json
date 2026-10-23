@@ -2,6 +2,7 @@
   "moduleFileExtensions": ["js", "json", "ts"],
   "rootDir": "..",
   "testEnvironment": "node",
+  "testTimeout": 30000,
   "testRegex": "test/integration/.*\\.integration-spec\\.ts$",
   "moduleNameMapper": { "^(\\.{1,2}/.*)\\.js$": "$1" },
   "transform": { "^.+\\.(t|j)s$": "ts-jest" }

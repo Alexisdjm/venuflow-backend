@@ -134,21 +134,26 @@ export class CustomersService {
         id: true,
         name: true,
         nationalId: true,
-        _count: {
-          select: { appointments: { where: { status: 'COMPLETED' } } },
-        },
       },
     });
     if (!customer) throw new NotFoundException('Customer not found');
-    if (customer._count.appointments > 0)
-      throw new ConflictException(
-        'No se puede eliminar un cliente que ya tiene servicios completados',
-      );
-
-    await this.prisma.$transaction(async (tx) => {
-      await tx.appointment.deleteMany({ where: { customerId: id, spaId } });
-      await tx.customer.delete({ where: { id_spaId: { id, spaId } } });
-    });
+    try {
+      await this.prisma.$transaction(async (tx) => {
+        await tx.appointment.deleteMany({
+          where: { customerId: id, spaId, status: { not: 'COMPLETED' } },
+        });
+        await tx.customer.delete({ where: { id_spaId: { id, spaId } } });
+      });
+    } catch (error) {
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2003'
+      )
+        throw new ConflictException(
+          'No se puede eliminar un cliente que ya tiene servicios completados',
+        );
+      throw error;
+    }
     await this.audit.record({
       spaId,
       actorUserId,
