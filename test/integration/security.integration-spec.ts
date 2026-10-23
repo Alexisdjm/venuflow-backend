@@ -32,6 +32,7 @@ describe('PostgreSQL security integration', () => {
     await app.init();
     prisma = app.get(PrismaService);
     await prisma.appointment.deleteMany();
+    await prisma.customer.deleteMany();
     await prisma.auditLog.deleteMany();
     await prisma.session.deleteMany();
     await prisma.professionalSchedule.deleteMany();
@@ -239,6 +240,7 @@ describe('PostgreSQL security integration', () => {
         professionalId: professionalA,
         startAt: outsideOpening.toISO(),
         customerName: 'Outside Hours',
+        customerNationalId: '12345670',
         customerPhone: '+58000000000',
       })
       .expect(409);
@@ -253,6 +255,7 @@ describe('PostgreSQL security integration', () => {
       serviceId: bookingService,
       professionalId: professionalA,
       customerName: 'Validation Client',
+      customerNationalId: '12345670',
       customerPhone: '+58000000000',
     };
     await request(app.getHttpServer())
@@ -293,6 +296,7 @@ describe('PostgreSQL security integration', () => {
         professionalId: professionalA,
         startAt: start.toISO(),
         customerName: 'No Schedule',
+        customerNationalId: '12345670',
         customerPhone: '+58000000000',
       })
       .expect(409);
@@ -313,6 +317,7 @@ describe('PostgreSQL security integration', () => {
       professionalId: professionalA,
       startAt,
       customerName: 'Concurrent Client',
+      customerNationalId: '12345670',
       customerPhone: '+58000000000',
     };
     const responses = await Promise.all([
@@ -349,7 +354,8 @@ describe('PostgreSQL security integration', () => {
         professionalId: professionalA,
         startAt,
         customerName: 'Future Client',
-        customerPhone: '+58000000000',
+        customerNationalId: '12345671',
+        customerPhone: '+58000000001',
       })
       .expect(201);
     await request(app.getHttpServer())
@@ -361,6 +367,61 @@ describe('PostgreSQL security integration', () => {
       where: { id: created.body.id as string },
     });
     expect(stored.status).toBe('CONFIRMED');
+  });
+  it('reuses an existing customer and exposes customer history', async () => {
+    const customer = await prisma.customer.findFirstOrThrow({
+      where: { spaId: spaA, nationalId: '12345671' },
+    });
+    const startAt = DateTime.now()
+      .setZone('America/Caracas')
+      .plus({ days: 8 })
+      .startOf('day')
+      .plus({ hours: 14 })
+      .toISO();
+    await request(app.getHttpServer())
+      .post('/api/v1/spa/appointments')
+      .set('Authorization', `Bearer ${bookingAccessToken}`)
+      .send({
+        serviceId: bookingService,
+        professionalId: professionalA,
+        customerId: customer.id,
+        startAt,
+      })
+      .expect(201);
+    const search = await request(app.getHttpServer())
+      .get('/api/v1/spa/customers?search=Future&period=all')
+      .set('Authorization', `Bearer ${bookingAccessToken}`)
+      .expect(200);
+    expect(search.body.data).toHaveLength(1);
+    expect(search.body.data[0]._count.appointments).toBe(0);
+    const detail = await request(app.getHttpServer())
+      .get(`/api/v1/spa/customers/${customer.id}`)
+      .set('Authorization', `Bearer ${bookingAccessToken}`)
+      .expect(200);
+    expect(detail.body.appointments).toHaveLength(2);
+    const updated = await request(app.getHttpServer())
+      .patch(`/api/v1/spa/customers/${customer.id}`)
+      .set('Authorization', `Bearer ${bookingAccessToken}`)
+      .send({ name: 'Future Client Updated', phone: '04120000001' })
+      .expect(200);
+    expect(updated.body.name).toBe('Future Client Updated');
+    expect(updated.body.nationalId).toBe('12345671');
+  });
+  it('deletes a customer without completed services and their pending appointments', async () => {
+    const customer = await prisma.customer.findFirstOrThrow({
+      where: { spaId: spaA, nationalId: '12345671' },
+    });
+    await request(app.getHttpServer())
+      .delete(`/api/v1/spa/customers/${customer.id}`)
+      .set('Authorization', `Bearer ${bookingAccessToken}`)
+      .expect(200)
+      .expect({ success: true });
+    expect(
+      await prisma.customer.findUnique({ where: { id: customer.id } }),
+    ).toBeNull();
+    expect(
+      await prisma.appointment.count({ where: { customerId: customer.id } }),
+    ).toBe(0);
   });
   it('requires and applies a selected duration for variable services', async () => {
     const start = DateTime.now()
@@ -392,7 +453,8 @@ describe('PostgreSQL security integration', () => {
       startAt: slot.start,
       durationMinutes: 300,
       customerName: 'Variable Duration',
-      customerPhone: '+58000000000',
+      customerNationalId: '12345672',
+      customerPhone: '+58000000002',
     };
     await request(app.getHttpServer())
       .post('/api/v1/spa/appointments')

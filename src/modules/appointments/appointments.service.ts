@@ -190,6 +190,13 @@ export class AppointmentsService {
       );
     }
     const slot = this.validateSlot(spa, d.startAt, durationMinutes);
+    let customer = d.customerId
+      ? await this.prisma.customer.findUnique({
+          where: { id_spaId: { id: d.customerId, spaId } },
+        })
+      : null;
+    if (d.customerId && !customer)
+      throw new NotFoundException('Customer not found');
     let candidates: string[];
     if (u.role === 'PROFESSIONAL') {
       const own = await this.own(u);
@@ -217,14 +224,38 @@ export class AppointmentsService {
       );
       if (!assignment) continue;
       try {
+        if (!customer) {
+          try {
+            customer = await this.prisma.customer.create({
+              data: {
+                spaId,
+                name: d.customerName!,
+                nationalId: d.customerNationalId!,
+                phone: d.customerPhone!,
+                email: d.customerEmail,
+              },
+            });
+          } catch (error) {
+            if (
+              error instanceof Prisma.PrismaClientKnownRequestError &&
+              error.code === 'P2002'
+            )
+              throw new ConflictException(
+                'A customer with this national ID already exists; select the recurring customer',
+              );
+            throw error;
+          }
+        }
         const appointment = await this.prisma.appointment.create({
           data: {
             spaId,
             professionalId,
             serviceId: d.serviceId,
-            customerName: d.customerName,
-            customerPhone: d.customerPhone,
-            customerEmail: d.customerEmail,
+            customerId: customer.id,
+            customerName: customer.name,
+            customerPhone: customer.phone,
+            customerNationalId: customer.nationalId,
+            customerEmail: customer.email,
             notes: d.notes,
             startAt: slot.start.toUTC().toJSDate(),
             endAt: slot.end.toUTC().toJSDate(),

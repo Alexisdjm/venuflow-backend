@@ -49,6 +49,7 @@ model Spa {
   schedules ProfessionalSchedule[]
   auditLogs AuditLog[]
   appointments Appointment[]
+  customers Customer[]
   createdAt DateTime   @default(now())
   updatedAt DateTime   @updatedAt
 }
@@ -182,11 +183,14 @@ model Appointment {
   spaId          String            @db.Uuid
   professionalId String            @db.Uuid
   serviceId      String            @db.Uuid
+  customerId     String            @db.Uuid
   spa            Spa               @relation(fields: [spaId], references: [id], onDelete: Restrict)
   professional   Professional      @relation(fields: [professionalId, spaId], references: [id, spaId], onDelete: Restrict)
   service        SpaService        @relation(fields: [serviceId, spaId], references: [id, spaId], onDelete: Restrict)
+  customer       Customer          @relation(fields: [customerId, spaId], references: [id, spaId], onDelete: Restrict)
   customerName   String
   customerPhone  String
+  customerNationalId String?
   customerEmail  String?
   notes          String?
   startAt        DateTime
@@ -201,4 +205,22 @@ model Appointment {
   @@unique([id, spaId])
   @@index([spaId, startAt])
   @@index([professionalId, startAt])
+  @@index([customerId, startAt])
+}
+
+model Customer {
+  id           String        @id @default(uuid()) @db.Uuid
+  spaId        String        @db.Uuid
+  spa          Spa           @relation(fields: [spaId], references: [id], onDelete: Restrict)
+  name         String
+  phone        String
+  nationalId   String?
+  email        String?
+  appointments Appointment[]
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  @@unique([id, spaId])
+  @@unique([spaId, nationalId])
+  @@index([spaId, name])
 }

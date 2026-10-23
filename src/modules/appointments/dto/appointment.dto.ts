@@ -13,6 +13,7 @@ import {
   MinLength,
   IsDivisibleBy,
   IsDecimal,
+  ValidateIf,
 } from 'class-validator';
 export class ListAppointmentsDto {
   @IsOptional() @Matches(/^\d{4}-\d{2}-\d{2}$/) date?: string;
@@ -30,8 +31,20 @@ export class CreateAppointmentDto {
   @IsDivisibleBy(30)
   durationMinutes?: number;
   @IsOptional() @IsDecimal({ decimal_digits: '0,2' }) additionalPrice?: string;
-  @IsString() @MinLength(2) @MaxLength(120) customerName!: string;
-  @IsString() @MinLength(5) @MaxLength(40) customerPhone!: string;
+  @IsOptional() @IsUUID() customerId?: string;
+  @ValidateIf((dto: CreateAppointmentDto) => !dto.customerId)
+  @IsString()
+  @MinLength(2)
+  @MaxLength(120)
+  customerName?: string;
+  @ValidateIf((dto: CreateAppointmentDto) => !dto.customerId)
+  @Matches(/^\d{7,8}$/)
+  customerNationalId?: string;
+  @ValidateIf((dto: CreateAppointmentDto) => !dto.customerId)
+  @IsString()
+  @MinLength(5)
+  @MaxLength(40)
+  customerPhone?: string;
   @IsOptional() @IsEmail() customerEmail?: string;
   @IsOptional() @IsString() @MaxLength(1000) notes?: string;
 }
