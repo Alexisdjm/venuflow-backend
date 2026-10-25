@@ -18,8 +18,40 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { PaginationDto } from '../../common/dto/pagination.dto';
 import { RolesGuard } from '../../common/guards/roles.guard';
+import {
+  CreateServiceCategoryDto,
+  UpdateServiceCategoryDto,
+} from './dto/service-category.dto';
 import { CreateServiceDto, UpdateServiceDto } from './dto/service.dto';
 import { ServicesService } from './services.service';
+
+@ApiTags('Service categories')
+@ApiBearerAuth()
+@Controller('spa/categories')
+@UseGuards(AuthGuard('jwt'), RolesGuard)
+@Roles('SPA_ADMIN')
+export class ServiceCategoriesController {
+  constructor(private readonly services: ServicesService) {}
+  @Get() list(@CurrentUser() u: AuthUser) {
+    return this.services.listCategories(u.spaId!);
+  }
+  @Post() create(@CurrentUser() u: AuthUser, @Body() d: CreateServiceCategoryDto) {
+    return this.services.createCategory(u.spaId!, u.sub, d);
+  }
+  @Patch(':id') update(
+    @CurrentUser() u: AuthUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() d: UpdateServiceCategoryDto,
+  ) {
+    return this.services.updateCategory(u.spaId!, u.sub, id, d);
+  }
+  @Delete(':id') remove(
+    @CurrentUser() u: AuthUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.services.deleteCategory(u.spaId!, u.sub, id);
+  }
+}
 
 @ApiTags('Spa services')
 @ApiBearerAuth()

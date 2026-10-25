@@ -14,12 +14,27 @@ describe('SpasService', () => {
   beforeEach(() => jest.clearAllMocks());
 
   it('creates and audits a spa', async () => {
-    const prisma = {
+    const tx = {
       spa: { create: jest.fn().mockResolvedValue({ id: 'spa-1' }) },
+      serviceCategory: { createMany: jest.fn().mockResolvedValue({ count: 5 }) },
+    };
+    const prisma = {
+      $transaction: jest.fn(async (callback: (client: typeof tx) => Promise<unknown>) =>
+        callback(tx),
+      ),
     };
     const service = new SpasService(prisma as never, audit as never);
 
     await service.create('actor-1', { name: 'Venue', slug: 'venue' } as never);
+
+    expect(tx.serviceCategory.createMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.arrayContaining([
+          expect.objectContaining({ spaId: 'spa-1', name: 'Uñas' }),
+          expect.objectContaining({ name: 'Maquillaje' }),
+        ]),
+      }),
+    );
 
     expect(audit.record).toHaveBeenCalledWith(
       expect.objectContaining({ action: 'SPA_CREATED', spaId: 'spa-1' }),
@@ -95,10 +110,15 @@ describe('SpasService', () => {
     const service = new SpasService(prisma as never, audit as never);
 
     await expect(
-      service.updateOperatingHours('actor', 'spa', 540, 1080),
+      service.updateOperatingHours('actor', 'spa', 540, 1080, 5),
     ).resolves.toEqual(updated);
     expect(audit.record).toHaveBeenCalledWith(
       expect.objectContaining({ action: 'SPA_OPERATING_HOURS_UPDATED' }),
+    );
+    expect(prisma.spa.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ walkInGraceMinutes: 5 }),
+      }),
     );
   });
 

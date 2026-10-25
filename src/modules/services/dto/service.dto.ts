@@ -7,6 +7,7 @@ import {
   IsIn,
   IsOptional,
   IsString,
+  IsUUID,
   Max,
   MaxLength,
   Min,
@@ -16,6 +17,7 @@ import {
 
 export class CreateServiceDto {
   @IsString() @MinLength(2) @MaxLength(120) name!: string;
+  @IsUUID() categoryId!: string;
   @IsOptional() @IsString() @MaxLength(1000) description?: string;
   @IsOptional() @IsIn(['FIXED', 'VARIABLE']) durationType?:
     'FIXED' | 'VARIABLE';

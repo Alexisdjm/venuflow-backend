@@ -8,7 +8,14 @@ import { Prisma } from '../../generated/prisma/client';
 import { PrismaService } from '../../database/prisma/prisma.service';
 import { PaginationDto } from '../../common/dto/pagination.dto';
 import { AuditService } from '../audit/audit.service';
+import { normalizeCategoryName } from './default-categories';
+import {
+  CreateServiceCategoryDto,
+  UpdateServiceCategoryDto,
+} from './dto/service-category.dto';
 import { CreateServiceDto, UpdateServiceDto } from './dto/service.dto';
+
+const categorySelection = { select: { id: true, name: true } } as const;
 
 @Injectable()
 export class ServicesService {
@@ -34,6 +41,22 @@ export class ServicesService {
         `durationMinutes cannot exceed the spa operating window (${maximumDuration} minutes)`,
       );
   }
+  private categoryName(name: string) {
+    const clean = name.trim().replace(/\s+/g, ' ');
+    if (clean.length < 2 || clean.length > 40)
+      throw new BadRequestException(
+        'El nombre de la categoría debe tener entre 2 y 40 caracteres',
+      );
+    return { name: clean, normalizedName: normalizeCategoryName(clean) };
+  }
+  private async requireCategory(spaId: string, categoryId: string) {
+    const category = await this.prisma.serviceCategory.findFirst({
+      where: { id: categoryId, spaId },
+      select: { id: true },
+    });
+    if (!category) throw new NotFoundException('Categoría no encontrada');
+    return category;
+  }
   async list(spaId: string, query: PaginationDto) {
     const where = { spaId };
     const [data, total] = await this.prisma.$transaction([
@@ -42,6 +65,7 @@ export class ServicesService {
         skip: (query.page - 1) * query.limit,
         take: query.limit,
         orderBy: { name: 'asc' },
+        include: { category: categorySelection },
       }),
       this.prisma.spaService.count({ where }),
     ]);
@@ -50,9 +74,117 @@ export class ServicesService {
   async get(spaId: string, id: string) {
     const service = await this.prisma.spaService.findUnique({
       where: { id_spaId: { id, spaId } },
+      include: { category: categorySelection },
     });
     if (!service) throw new NotFoundException('Service not found');
     return service;
+  }
+  listCategories(spaId: string) {
+    return this.prisma.serviceCategory.findMany({
+      where: { spaId },
+      orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
+      select: { id: true, name: true, sortOrder: true },
+    });
+  }
+  async createCategory(
+    spaId: string,
+    actorUserId: string,
+    dto: CreateServiceCategoryDto,
+  ) {
+    const { name, normalizedName } = this.categoryName(dto.name);
+    const last = await this.prisma.serviceCategory.findFirst({
+      where: { spaId },
+      orderBy: { sortOrder: 'desc' },
+      select: { sortOrder: true },
+    });
+    const category = await this.prisma.serviceCategory
+      .create({
+        data: {
+          spaId,
+          name,
+          normalizedName,
+          sortOrder: (last?.sortOrder ?? -1) + 1,
+        },
+        select: { id: true, name: true, sortOrder: true },
+      })
+      .catch((error: unknown) => {
+        if (
+          error instanceof Prisma.PrismaClientKnownRequestError &&
+          error.code === 'P2002'
+        )
+          throw new ConflictException('Ya existe una categoría con ese nombre');
+        throw error;
+      });
+    await this.audit.record({
+      spaId,
+      actorUserId,
+      action: 'SERVICE_CATEGORY_CREATED',
+      entityType: 'ServiceCategory',
+      entityId: category.id,
+      metadata: { name },
+    });
+    return category;
+  }
+  async updateCategory(
+    spaId: string,
+    actorUserId: string,
+    id: string,
+    dto: UpdateServiceCategoryDto,
+  ) {
+    const current = await this.prisma.serviceCategory.findFirst({
+      where: { id, spaId },
+    });
+    if (!current) throw new NotFoundException('Categoría no encontrada');
+    const { name, normalizedName } = this.categoryName(dto.name);
+    const category = await this.prisma.serviceCategory
+      .update({
+        where: { id },
+        data: { name, normalizedName },
+        select: { id: true, name: true, sortOrder: true },
+      })
+      .catch((error: unknown) => {
+        if (
+          error instanceof Prisma.PrismaClientKnownRequestError &&
+          error.code === 'P2002'
+        )
+          throw new ConflictException('Ya existe una categoría con ese nombre');
+        throw error;
+      });
+    await this.audit.record({
+      spaId,
+      actorUserId,
+      action: 'SERVICE_CATEGORY_UPDATED',
+      entityType: 'ServiceCategory',
+      entityId: id,
+      metadata: { name },
+    });
+    return category;
+  }
+  async deleteCategory(spaId: string, actorUserId: string, id: string) {
+    const current = await this.prisma.serviceCategory.findFirst({
+      where: { id, spaId },
+    });
+    if (!current) throw new NotFoundException('Categoría no encontrada');
+    const [services, appointments] = await Promise.all([
+      this.prisma.spaService.count({ where: { spaId, categoryId: id } }),
+      this.prisma.appointment.count({
+        where: { spaId, serviceCategoryId: id },
+      }),
+    ]);
+    if (services || appointments)
+      throw new ConflictException(
+        'No se puede eliminar una categoría que ya tiene servicios o citas',
+      );
+    await this.prisma.serviceCategory.delete({ where: { id } });
+    await this.audit.record({
+      spaId,
+      actorUserId,
+      action: 'SERVICE_CATEGORY_DELETED',
+      entityType: 'ServiceCategory',
+      entityId: id,
+      metadata: { name: current.name },
+    });
+    return { success: true };
   }
   async create(spaId: string, actorUserId: string, dto: CreateServiceDto) {
     const durationType = dto.durationType ?? 'FIXED';
@@ -61,6 +193,7 @@ export class ServicesService {
         'durationMinutes is required for fixed-duration services',
       );
     await this.validateDuration(spaId, dto.durationMinutes);
+    await this.requireCategory(spaId, dto.categoryId);
     const service = await this.prisma.spaService
       .create({
         data: {
@@ -72,6 +205,7 @@ export class ServicesService {
             durationType === 'VARIABLE' ? null : dto.durationMinutes,
           price: this.money(dto.price),
         },
+        include: { category: categorySelection },
       })
       .catch((error: unknown) => {
         if (error instanceof BadRequestException) throw error;
@@ -110,6 +244,7 @@ export class ServicesService {
         'durationMinutes is required for fixed-duration services',
       );
     await this.validateDuration(spaId, durationMinutes ?? undefined);
+    if (dto.categoryId) await this.requireCategory(spaId, dto.categoryId);
     const service = await this.prisma.spaService
       .update({
         where: { id_spaId: { id, spaId } },
@@ -119,6 +254,7 @@ export class ServicesService {
           durationMinutes,
           price: dto.price === undefined ? undefined : this.money(dto.price),
         },
+        include: { category: categorySelection },
       })
       .catch((error: unknown) => {
         if (
@@ -159,7 +295,7 @@ export class ServicesService {
       where: { professionalId_serviceId: { professionalId, serviceId } },
       create: { spaId, professionalId, serviceId },
       update: {},
-      include: { service: true },
+      include: { service: { include: { category: categorySelection } } },
     });
     await this.audit.record({
       spaId,
@@ -198,7 +334,7 @@ export class ServicesService {
   listForProfessional(spaId: string, professionalId: string) {
     return this.prisma.professionalService.findMany({
       where: { spaId, professionalId },
-      include: { service: true },
+      include: { service: { include: { category: categorySelection } } },
     });
   }
   async listOwn(spaId: string, userId: string) {

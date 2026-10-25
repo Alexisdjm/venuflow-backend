@@ -1,4 +1,4 @@
-import { IsInt, Max, Min } from 'class-validator';
+import { IsInt, IsOptional, Max, Min } from 'class-validator';
 
 export class UpdateOperatingHoursDto {
   @IsInt()
@@ -10,4 +10,10 @@ export class UpdateOperatingHoursDto {
   @Min(1)
   @Max(1440)
   closingMinute!: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(30)
+  walkInGraceMinutes?: number;
 }

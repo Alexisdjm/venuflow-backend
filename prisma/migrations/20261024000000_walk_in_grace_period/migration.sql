@@ -1,0 +1,9 @@
+ALTER TABLE "Spa"
+ADD COLUMN "walkInGraceMinutes" INTEGER NOT NULL DEFAULT 5;
+
+ALTER TABLE "Appointment"
+ADD COLUMN "isWalkIn" BOOLEAN NOT NULL DEFAULT false;
+
+ALTER TABLE "Spa"
+ADD CONSTRAINT "Spa_walkInGraceMinutes_check"
+CHECK ("walkInGraceMinutes" BETWEEN 0 AND 30);

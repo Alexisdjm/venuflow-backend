@@ -1,6 +1,8 @@
 import { AvailabilityService } from './availability.service';
 
 describe('AvailabilityService', () => {
+  afterEach(() => jest.useRealTimers());
+
   it('creates timezone-aware slots inside the weekly schedule', async () => {
     const prisma = {
       spa: {
@@ -81,4 +83,50 @@ describe('AvailabilityService', () => {
       );
     },
   );
+
+  it('returns and marks the preceding slot inside the grace period', async () => {
+    jest.useFakeTimers().setSystemTime(new Date('2026-10-24T17:02:00.000Z'));
+    const prisma = {
+      spa: {
+        findUniqueOrThrow: jest.fn().mockResolvedValue({
+          timezone: 'UTC',
+          openingMinute: 540,
+          closingMinute: 1080,
+          walkInGraceMinutes: 5,
+        }),
+      },
+      spaService: {
+        findUnique: jest.fn().mockResolvedValue({
+          id: 'service',
+          isActive: true,
+          durationType: 'FIXED',
+          durationMinutes: 60,
+        }),
+      },
+      professionalService: {
+        findMany: jest.fn().mockResolvedValue([
+          {
+            professional: {
+              id: 'professional',
+              schedules: [{ startMinute: 1020, endMinute: 1080 }],
+            },
+          },
+        ]),
+      },
+      appointment: { findMany: jest.fn().mockResolvedValue([]) },
+    };
+    const service = new AvailabilityService(prisma as never);
+
+    const result = await service.get('spa', {
+      date: '2026-10-24',
+      serviceId: 'service',
+      intervalMinutes: 30,
+    });
+
+    expect(result.data).toHaveLength(1);
+    expect(result.data[0]).toMatchObject({
+      localStart: '2026-10-24T17:00:00.000Z',
+      isGracePeriod: true,
+    });
+  });
 });

@@ -21,11 +21,13 @@ describe('AppointmentsService', () => {
     durationMinutes: 60,
     priceType: 'FIXED',
     price: new Prisma.Decimal(25),
+    categoryId: 'category-id',
   };
   const spa = {
     timezone: 'UTC',
     openingMinute: 540,
     closingMinute: 1080,
+    walkInGraceMinutes: 5,
   };
   const future = () =>
     DateTime.utc().plus({ days: 2 }).startOf('day').plus({ hours: 10 }).toISO();
@@ -79,6 +81,69 @@ describe('AppointmentsService', () => {
     ).rejects.toBeInstanceOf(ConflictException);
   });
 
+  it('automatically allows a recently started slot inside the grace period', async () => {
+    jest.useFakeTimers().setSystemTime(new Date('2026-10-24T17:02:00.000Z'));
+    const appointment = { id: 'walk-in' };
+    const prisma = {
+      spaService: { findUnique: jest.fn().mockResolvedValue(fixedService) },
+      spa: { findUniqueOrThrow: jest.fn().mockResolvedValue(spa) },
+      professionalService: {
+        findMany: jest.fn().mockResolvedValue([{ professionalId: 'pro-id' }]),
+        findFirst: jest.fn().mockResolvedValue({
+          professional: { commissionRate: new Prisma.Decimal(40) },
+        }),
+      },
+      professionalSchedule: {
+        findFirst: jest.fn().mockResolvedValue({ id: 'schedule-id' }),
+      },
+      customer: {
+        findUnique: jest.fn().mockResolvedValue({
+          id: 'customer-id',
+          name: 'Ana',
+          phone: '04120000000',
+          nationalId: '12345678',
+          email: null,
+        }),
+      },
+      appointment: {
+        findFirst: jest.fn().mockResolvedValue(null),
+        create: jest.fn().mockResolvedValue(appointment),
+      },
+    };
+    const service = new AppointmentsService(prisma as never, audit as never);
+
+    await expect(
+      service.create(admin, {
+        serviceId: 'service-id',
+        customerId: 'customer-id',
+        startAt: '2026-10-24T17:00:00.000Z',
+      }),
+    ).resolves.toEqual(appointment);
+    expect(prisma.appointment.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ isWalkIn: true }),
+      }),
+    );
+    jest.useRealTimers();
+  });
+
+  it('rejects a recently started slot after the configured grace period', async () => {
+    jest.useFakeTimers().setSystemTime(new Date('2026-10-24T17:06:00.000Z'));
+    const prisma = {
+      spaService: { findUnique: jest.fn().mockResolvedValue(fixedService) },
+      spa: { findUniqueOrThrow: jest.fn().mockResolvedValue(spa) },
+    };
+    const service = new AppointmentsService(prisma as never, audit as never);
+
+    await expect(
+      service.create(admin, {
+        serviceId: 'service-id',
+        startAt: '2026-10-24T17:00:00.000Z',
+      }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    jest.useRealTimers();
+  });
+
   it('creates an appointment with financial snapshots and an audit event', async () => {
     const appointment = { id: 'appointment-id' };
     const prisma = {
@@ -130,6 +195,93 @@ describe('AppointmentsService', () => {
     expect(audit.record).toHaveBeenCalledWith(
       expect.objectContaining({ action: 'APPOINTMENT_CREATED' }),
     );
+  });
+
+  it('honors an explicitly selected professional instead of assigning randomly', async () => {
+    const appointment = { id: 'appointment-id', professionalId: 'pro-fixed' };
+    const prisma = {
+      spaService: { findUnique: jest.fn().mockResolvedValue(fixedService) },
+      spa: { findUniqueOrThrow: jest.fn().mockResolvedValue(spa) },
+      professionalService: {
+        findMany: jest.fn(),
+        findFirst: jest.fn().mockResolvedValue({
+          professional: { commissionRate: new Prisma.Decimal(40) },
+        }),
+      },
+      professionalSchedule: {
+        findFirst: jest.fn().mockResolvedValue({ id: 'schedule-id' }),
+      },
+      customer: {
+        findUnique: jest.fn().mockResolvedValue({
+          id: 'customer-id',
+          name: 'Ana',
+          nationalId: '12345678',
+          phone: '04120000000',
+          email: null,
+        }),
+      },
+      appointment: {
+        findFirst: jest.fn().mockResolvedValue(null),
+        create: jest.fn().mockResolvedValue(appointment),
+      },
+    };
+    const service = new AppointmentsService(prisma as never, audit as never);
+
+    await service.create(admin, {
+      serviceId: 'service-id',
+      professionalId: 'pro-fixed',
+      customerId: 'customer-id',
+      startAt: future()!,
+    });
+
+    expect(prisma.professionalService.findMany).not.toHaveBeenCalled();
+    expect(prisma.professionalService.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ professionalId: 'pro-fixed' }),
+      }),
+    );
+    expect(prisma.appointment.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ professionalId: 'pro-fixed' }),
+      }),
+    );
+  });
+
+  it('rejects a second active appointment in the same category and local day', async () => {
+    const categorizedService = { ...fixedService, categoryId: 'nails-id' };
+    const prisma = {
+      spaService: {
+        findUnique: jest.fn().mockResolvedValue(categorizedService),
+      },
+      spa: { findUniqueOrThrow: jest.fn().mockResolvedValue(spa) },
+      customer: {
+        findUnique: jest.fn().mockResolvedValue({ id: 'customer-id' }),
+      },
+      appointment: {
+        findFirst: jest.fn().mockResolvedValue({ id: 'existing-appointment' }),
+      },
+      professionalService: { findMany: jest.fn() },
+    };
+    const service = new AppointmentsService(prisma as never, audit as never);
+
+    await expect(
+      service.create(admin, {
+        serviceId: 'service-id',
+        customerId: 'customer-id',
+        startAt: future()!,
+      }),
+    ).rejects.toThrow(
+      'Esta cliente ya tiene una cita de esta categoría en la fecha seleccionada',
+    );
+    expect(prisma.appointment.findFirst).toHaveBeenCalledWith({
+      where: expect.objectContaining({
+        customerId: 'customer-id',
+        serviceCategoryId: 'nails-id',
+        status: { not: 'CANCELLED' },
+      }),
+      select: { id: true },
+    });
+    expect(prisma.professionalService.findMany).not.toHaveBeenCalled();
   });
 
   it('reports no availability when no assigned professional has a schedule', async () => {

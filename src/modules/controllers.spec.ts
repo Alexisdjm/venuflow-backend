@@ -327,6 +327,7 @@ describe('HTTP controllers', () => {
     controller.updateOperatingHours(admin, {
       openingMinute: 540,
       closingMinute: 1080,
+      walkInGraceMinutes: 5,
     });
     controller.listUsers(admin, query);
     controller.list(admin, query);
@@ -344,6 +345,7 @@ describe('HTTP controllers', () => {
       'spa-1',
       540,
       1080,
+      5,
     );
     expect(users.list).toHaveBeenCalledWith('spa-1', query);
     expect(professionals.createForAdmin).toHaveBeenCalledWith(

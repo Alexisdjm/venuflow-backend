@@ -39,11 +39,15 @@ describe('ServicesService', () => {
       spaService: {
         create: jest.fn().mockResolvedValue({ id: 'service' }),
       },
+      serviceCategory: {
+        findFirst: jest.fn().mockResolvedValue({ id: 'category-id' }),
+      },
     };
     const service = new ServicesService(prisma as never, audit as never);
 
     await service.create('spa', 'user', {
       name: 'Jornada completa',
+      categoryId: 'category-id',
       durationMinutes: 480,
       price: '10',
     });
@@ -63,11 +67,15 @@ describe('ServicesService', () => {
   it('creates a variable-duration service without fixed minutes', async () => {
     const prisma = {
       spaService: { create: jest.fn().mockResolvedValue({ id: 'service' }) },
+      serviceCategory: {
+        findFirst: jest.fn().mockResolvedValue({ id: 'category-id' }),
+      },
     };
     const service = new ServicesService(prisma as never, audit as never);
 
     await service.create('spa', 'user', {
       name: 'Colorimetría',
+      categoryId: 'category-id',
       durationType: 'VARIABLE',
       priceType: 'VARIABLE',
       price: '20',
@@ -102,6 +110,7 @@ describe('ServicesService', () => {
     expect(result.meta.total).toBe(1);
     expect(prisma.spaService.findUnique).toHaveBeenCalledWith({
       where: { id_spaId: { id: 'service', spaId: 'spa' } },
+      include: { category: { select: { id: true, name: true } } },
     });
   });
 
@@ -198,7 +207,9 @@ describe('ServicesService', () => {
     await expect(service.listOwn('spa', 'user')).resolves.toEqual([]);
     expect(prisma.professionalService.findMany).toHaveBeenCalledWith({
       where: { spaId: 'spa', professionalId: 'pro' },
-      include: { service: true },
+      include: {
+        service: { include: { category: { select: { id: true, name: true } } } },
+      },
     });
   });
 });

@@ -11,6 +11,10 @@ import { ProvisionAdminDto } from './dto/provision-admin.dto';
 import { PaginationDto } from '../../common/dto/pagination.dto';
 import { AuditService } from '../audit/audit.service';
 import { Prisma } from '../../generated/prisma/client';
+import {
+  DEFAULT_SERVICE_CATEGORIES,
+  normalizeCategoryName,
+} from '../services/default-categories';
 @Injectable()
 export class SpasService {
   constructor(
@@ -18,8 +22,19 @@ export class SpasService {
     private readonly audit: AuditService,
   ) {}
   async create(actorUserId: string, dto: CreateSpaDto) {
-    const spa = await this.prisma.spa
-      .create({ data: dto })
+    const spa = await this.prisma
+      .$transaction(async (tx) => {
+        const created = await tx.spa.create({ data: dto });
+        await tx.serviceCategory.createMany({
+          data: DEFAULT_SERVICE_CATEGORIES.map((name, sortOrder) => ({
+            spaId: created.id,
+            name,
+            normalizedName: normalizeCategoryName(name),
+            sortOrder,
+          })),
+        });
+        return created;
+      })
       .catch((error: unknown) => {
         if (
           error instanceof Prisma.PrismaClientKnownRequestError &&
@@ -72,6 +87,7 @@ export class SpasService {
     spaId: string,
     openingMinute: number,
     closingMinute: number,
+    walkInGraceMinutes?: number,
   ) {
     if (openingMinute >= closingMinute)
       throw new BadRequestException('Opening time must be before closing time');
@@ -102,7 +118,7 @@ export class SpasService {
       );
     const spa = await this.prisma.spa.update({
       where: { id: spaId },
-      data: { openingMinute, closingMinute },
+      data: { openingMinute, closingMinute, walkInGraceMinutes },
     });
     await this.audit.record({
       actorUserId,
@@ -110,7 +126,7 @@ export class SpasService {
       action: 'SPA_OPERATING_HOURS_UPDATED',
       entityType: 'Spa',
       entityId: spaId,
-      metadata: { openingMinute, closingMinute },
+      metadata: { openingMinute, closingMinute, walkInGraceMinutes },
     });
     return spa;
   }

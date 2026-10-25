@@ -58,6 +58,7 @@ export class SpaAdminController {
       this.tenant(u),
       d.openingMinute,
       d.closingMinute,
+      d.walkInGraceMinutes,
     );
   }
   @Get('users') listUsers(

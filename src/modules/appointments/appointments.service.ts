@@ -22,7 +22,7 @@ export class AppointmentsService {
   private isConcurrentBookingConflict(error: unknown) {
     if (
       error instanceof Prisma.PrismaClientKnownRequestError &&
-      ['P2002', 'P2004'].includes(error.code)
+      error.code === 'P2004'
     )
       return true;
     const message = error instanceof Error ? error.message : String(error);
@@ -33,8 +33,26 @@ export class AppointmentsService {
     );
   }
 
+  private isCustomerCategoryConflict(error: unknown) {
+    return (
+      error instanceof Prisma.PrismaClientKnownRequestError &&
+      error.code === 'P2002'
+    );
+  }
+
+  private categoryConflict() {
+    return new ConflictException(
+      'Esta cliente ya tiene una cita de esta categoría en la fecha seleccionada',
+    );
+  }
+
   private validateSlot(
-    spa: { timezone: string; openingMinute: number; closingMinute: number },
+    spa: {
+      timezone: string;
+      openingMinute: number;
+      closingMinute: number;
+      walkInGraceMinutes: number;
+    },
     startAt: string | Date,
     durationMinutes: number,
   ) {
@@ -50,8 +68,13 @@ export class AppointmentsService {
       local.millisecond !== 0
     )
       throw new BadRequestException('startAt must use a 30-minute interval');
-    if (start.toUTC() < DateTime.utc())
-      throw new BadRequestException('Appointments cannot start in the past');
+    const now = DateTime.utc();
+    const isWalkIn = start.toUTC() < now;
+    if (isWalkIn) {
+      const minutesLate = now.diff(start.toUTC(), 'minutes').minutes;
+      if (minutesLate > spa.walkInGraceMinutes)
+        throw new BadRequestException('Appointments cannot start in the past');
+    }
     const end = start.plus({ minutes: durationMinutes });
     const localEnd = end.setZone(spa.timezone);
     const startMinute = local.hour * 60 + local.minute;
@@ -64,7 +87,7 @@ export class AppointmentsService {
       throw new ConflictException(
         'The appointment is outside the spa operating hours',
       );
-    return { start, end, local, startMinute, endMinute };
+    return { start, end, local, startMinute, endMinute, isWalkIn };
   }
 
   private async availableAssignment(
@@ -162,7 +185,12 @@ export class AppointmentsService {
     if (!service?.isActive) throw new NotFoundException('Service not found');
     const spa = await this.prisma.spa.findUniqueOrThrow({
       where: { id: spaId },
-      select: { timezone: true, openingMinute: true, closingMinute: true },
+      select: {
+        timezone: true,
+        openingMinute: true,
+        closingMinute: true,
+        walkInGraceMinutes: true,
+      },
     });
     const durationMinutes =
       service.durationType === 'VARIABLE'
@@ -190,6 +218,7 @@ export class AppointmentsService {
       );
     }
     const slot = this.validateSlot(spa, d.startAt, durationMinutes);
+    const appointmentDate = new Date(`${slot.local.toISODate()}T00:00:00.000Z`);
     let customer = d.customerId
       ? await this.prisma.customer.findUnique({
           where: { id_spaId: { id: d.customerId, spaId } },
@@ -197,6 +226,20 @@ export class AppointmentsService {
       : null;
     if (d.customerId && !customer)
       throw new NotFoundException('Customer not found');
+    if (
+      customer &&
+      (await this.prisma.appointment.findFirst({
+        where: {
+          spaId,
+          customerId: customer.id,
+          appointmentDate,
+          serviceCategoryId: service.categoryId,
+          status: { not: 'CANCELLED' },
+        },
+        select: { id: true },
+      }))
+    )
+      throw this.categoryConflict();
     let candidates: string[];
     if (u.role === 'PROFESSIONAL') {
       const own = await this.own(u);
@@ -259,8 +302,11 @@ export class AppointmentsService {
             notes: d.notes,
             startAt: slot.start.toUTC().toJSDate(),
             endAt: slot.end.toUTC().toJSDate(),
+            appointmentDate,
+            serviceCategoryId: service.categoryId,
             servicePrice,
             commissionRate: assignment.professional.commissionRate,
+            isWalkIn: slot.isWalkIn,
             createdById: u.sub,
           },
           include: {
@@ -282,9 +328,12 @@ export class AppointmentsService {
           action: 'APPOINTMENT_CREATED',
           entityType: 'Appointment',
           entityId: appointment.id,
+          metadata: { isWalkIn: slot.isWalkIn },
         });
         return appointment;
       } catch (error) {
+        if (this.isCustomerCategoryConflict(error))
+          throw this.categoryConflict();
         if (this.isConcurrentBookingConflict(error)) continue;
         throw error;
       }
@@ -325,7 +374,9 @@ export class AppointmentsService {
         'Professionals cannot transfer appointments',
       );
     const targetProfessionalId = d.professionalId ?? current.professionalId;
-    let startAt: Date | undefined, endAt: Date | undefined;
+    let startAt: Date | undefined,
+      endAt: Date | undefined,
+      appointmentDate: Date | undefined;
     let commissionRate: Prisma.Decimal | undefined;
     if (d.startAt || d.professionalId) {
       if (current.status !== 'CONFIRMED')
@@ -337,7 +388,12 @@ export class AppointmentsService {
       );
       const spa = await this.prisma.spa.findUniqueOrThrow({
         where: { id: spaId },
-        select: { timezone: true, openingMinute: true, closingMinute: true },
+        select: {
+          timezone: true,
+          openingMinute: true,
+          closingMinute: true,
+          walkInGraceMinutes: true,
+        },
       });
       const slot = this.validateSlot(
         spa,
@@ -388,6 +444,19 @@ export class AppointmentsService {
         );
       startAt = slot.start.toUTC().toJSDate();
       endAt = slot.end.toUTC().toJSDate();
+      appointmentDate = new Date(`${slot.local.toISODate()}T00:00:00.000Z`);
+      const duplicateCategory = await this.prisma.appointment.findFirst({
+        where: {
+          id: { not: id },
+          spaId,
+          customerId: current.customerId,
+          appointmentDate,
+          serviceCategoryId: current.serviceCategoryId,
+          status: { not: 'CANCELLED' },
+        },
+        select: { id: true },
+      });
+      if (duplicateCategory) throw this.categoryConflict();
     }
     let value;
     try {
@@ -397,11 +466,13 @@ export class AppointmentsService {
           status: d.status,
           startAt,
           endAt,
+          appointmentDate,
           professionalId: d.professionalId,
           commissionRate,
         },
       });
     } catch (error) {
+      if (this.isCustomerCategoryConflict(error)) throw this.categoryConflict();
       if (this.isConcurrentBookingConflict(error))
         throw new ConflictException(
           'The professional is not available at the new time',

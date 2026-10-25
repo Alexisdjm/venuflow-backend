@@ -74,7 +74,12 @@ export class AvailabilityService {
         ) {
           const start = localDate.plus({ minutes: minute });
           const end = start.plus({ minutes: durationMinutes });
-          if (start < now) continue;
+          const isGracePeriod = start < now;
+          if (
+            isGracePeriod &&
+            now.diff(start, 'minutes').minutes > spa.walkInGraceMinutes
+          )
+            continue;
           const occupied = appointments.some(
             (appointment) =>
               appointment.professionalId === professional.id &&
@@ -89,6 +94,7 @@ export class AvailabilityService {
               end: end.toUTC().toISO(),
               localStart: start.toISO(),
               localEnd: end.toISO(),
+              isGracePeriod,
             });
         }
         return slots;

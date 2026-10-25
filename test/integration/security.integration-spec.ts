@@ -15,6 +15,8 @@ describe('PostgreSQL security integration', () => {
     professionalB: string,
     bookingService: string,
     variableService: string,
+    nailsCategoryId: string,
+    hairCategoryId: string,
     bookingAccessToken: string;
   beforeAll(async () => {
     const module = await Test.createTestingModule({
@@ -38,6 +40,7 @@ describe('PostgreSQL security integration', () => {
     await prisma.professionalSchedule.deleteMany();
     await prisma.professionalService.deleteMany();
     await prisma.spaService.deleteMany();
+    await prisma.serviceCategory.deleteMany();
     await prisma.professional.deleteMany();
     await prisma.user.deleteMany();
     await prisma.spa.deleteMany();
@@ -60,6 +63,19 @@ describe('PostgreSQL security integration', () => {
     });
     spaA = a.id;
     spaB = b.id;
+    const nails = await prisma.serviceCategory.create({
+      data: { spaId: spaA, name: 'Uñas', normalizedName: 'uñas', sortOrder: 0 },
+    });
+    const hair = await prisma.serviceCategory.create({
+      data: {
+        spaId: spaA,
+        name: 'Cabello',
+        normalizedName: 'cabello',
+        sortOrder: 1,
+      },
+    });
+    nailsCategoryId = nails.id;
+    hairCategoryId = hair.id;
     const adminA = await prisma.user.create({
       data: {
         spaId: spaA,
@@ -95,6 +111,7 @@ describe('PostgreSQL security integration', () => {
         data: {
           spaId: spaA,
           name: 'Booking service',
+          categoryId: nailsCategoryId,
           durationMinutes: 60,
           price: '20',
         },
@@ -105,6 +122,7 @@ describe('PostgreSQL security integration', () => {
         data: {
           spaId: spaA,
           name: 'Variable booking service',
+          categoryId: nailsCategoryId,
           durationType: 'VARIABLE',
           durationMinutes: null,
           priceType: 'VARIABLE',
@@ -211,6 +229,7 @@ describe('PostgreSQL security integration', () => {
       data: {
         spaId: spaA,
         name: 'Service A',
+        categoryId: nailsCategoryId,
         durationMinutes: 30,
         price: '10',
       },
@@ -428,6 +447,98 @@ describe('PostgreSQL security integration', () => {
       .expect(200);
     expect(updated.body.name).toBe('Future Client Updated');
     expect(updated.body.nationalId).toBe('12345671');
+  });
+  it('allows different categories but rejects the same category on one day', async () => {
+    const hairService = await prisma.spaService.create({
+      data: {
+        spaId: spaA,
+        name: 'Hair category service',
+        categoryId: hairCategoryId,
+        durationMinutes: 60,
+        price: '30',
+      },
+    });
+    await prisma.professionalService.create({
+      data: {
+        spaId: spaA,
+        professionalId: professionalA,
+        serviceId: hairService.id,
+      },
+    });
+    const day = DateTime.now()
+      .setZone('America/Caracas')
+      .plus({ days: 11 })
+      .startOf('day');
+    const first = await request(app.getHttpServer())
+      .post('/api/v1/spa/appointments')
+      .set('Authorization', `Bearer ${bookingAccessToken}`)
+      .send({
+        serviceId: bookingService,
+        professionalId: professionalA,
+        startAt: day.plus({ hours: 9 }).toISO(),
+        customerName: 'Category Client',
+        customerNationalId: '12345673',
+        customerPhone: '+58000000003',
+      })
+      .expect(201);
+
+    await request(app.getHttpServer())
+      .post('/api/v1/spa/appointments')
+      .set('Authorization', `Bearer ${bookingAccessToken}`)
+      .send({
+        serviceId: bookingService,
+        professionalId: professionalA,
+        customerId: first.body.customerId,
+        startAt: day.plus({ hours: 11 }).toISO(),
+      })
+      .expect(409);
+
+    await request(app.getHttpServer())
+      .post('/api/v1/spa/appointments')
+      .set('Authorization', `Bearer ${bookingAccessToken}`)
+      .send({
+        serviceId: hairService.id,
+        professionalId: professionalA,
+        customerId: first.body.customerId,
+        startAt: day.plus({ hours: 12 }).toISO(),
+      })
+      .expect(201);
+  });
+  it('creates an ordered multi-service appointment atomically', async () => {
+    const hairService = await prisma.spaService.findFirstOrThrow({
+      where: { spaId: spaA, categoryId: hairCategoryId },
+    });
+    const date = DateTime.now()
+      .setZone('America/Caracas')
+      .plus({ days: 12 })
+      .toISODate()!;
+    const items = [
+      { serviceId: bookingService, professionalId: professionalA },
+      { serviceId: hairService.id, professionalId: professionalA },
+    ];
+    const availability = await request(app.getHttpServer())
+      .post('/api/v1/spa/appointments/bundle/availability')
+      .set('Authorization', `Bearer ${bookingAccessToken}`)
+      .send({ date, intervalMinutes: 30, items })
+      .expect(201);
+    expect(availability.body.data.length).toBeGreaterThan(0);
+    const plan = availability.body.data[0];
+    expect(plan.segments).toHaveLength(2);
+    expect(plan.segments[1].start).toBe(plan.segments[0].end);
+
+    const created = await request(app.getHttpServer())
+      .post('/api/v1/spa/appointments/bundle')
+      .set('Authorization', `Bearer ${bookingAccessToken}`)
+      .send({
+        startAt: plan.start,
+        items,
+        customerName: 'Bundle Client',
+        customerNationalId: '12345674',
+        customerPhone: '+58000000004',
+      })
+      .expect(201);
+    expect(created.body).toHaveLength(2);
+    expect(created.body[1].startAt).toBe(created.body[0].endAt);
   });
   it('deletes a customer without completed services and their pending appointments', async () => {
     const customer = await prisma.customer.findFirstOrThrow({

@@ -43,6 +43,7 @@ model Spa {
   currency  String     @db.VarChar(3)
   openingMinute Int     @default(540)
   closingMinute Int     @default(1080)
+  walkInGraceMinutes Int @default(5)
   users     User[]
   professionals Professional[]
   services  SpaService[]
@@ -50,6 +51,7 @@ model Spa {
   auditLogs AuditLog[]
   appointments Appointment[]
   customers Customer[]
+  serviceCategories ServiceCategory[]
   createdAt DateTime   @default(now())
   updatedAt DateTime   @updatedAt
 }
@@ -133,6 +135,8 @@ model SpaService {
   spa             Spa      @relation(fields: [spaId], references: [id], onDelete: Restrict)
   name            String
   description     String?
+  categoryId      String   @db.Uuid
+  category        ServiceCategory @relation(fields: [categoryId, spaId], references: [id, spaId], onDelete: Restrict)
   durationType    ServiceDurationType @default(FIXED)
   durationMinutes Int?
   priceType       ServicePriceType @default(FIXED)
@@ -195,9 +199,13 @@ model Appointment {
   notes          String?
   startAt        DateTime
   endAt          DateTime
+  appointmentDate DateTime          @db.Date
   status         AppointmentStatus @default(CONFIRMED)
+  serviceCategoryId String         @db.Uuid
+  serviceCategory ServiceCategory   @relation(fields: [serviceCategoryId, spaId], references: [id, spaId], onDelete: Restrict)
   servicePrice   Decimal           @db.Decimal(10, 2)
   commissionRate Decimal           @db.Decimal(5, 2)
+  isWalkIn       Boolean           @default(false)
   createdById    String            @db.Uuid
   createdAt      DateTime          @default(now())
   updatedAt      DateTime          @updatedAt
@@ -206,6 +214,24 @@ model Appointment {
   @@index([spaId, startAt])
   @@index([professionalId, startAt])
   @@index([customerId, startAt])
+}
+
+model ServiceCategory {
+  id             String        @id @default(uuid()) @db.Uuid
+  spaId          String        @db.Uuid
+  spa            Spa           @relation(fields: [spaId], references: [id], onDelete: Restrict)
+  name           String
+  normalizedName String
+  sortOrder      Int           @default(0)
+  services       SpaService[]
+  appointments   Appointment[]
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  @@unique([id, spaId])
+  @@unique([spaId, normalizedName])
+  @@index([spaId, sortOrder])
+  @@map("service_categories")
 }
 
 model Customer {
