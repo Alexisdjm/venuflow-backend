@@ -23,7 +23,7 @@ export class ProfessionalsService {
   private rate(value: string) {
     const n = new Prisma.Decimal(value);
     if (n.lt(0) || n.gt(100))
-      throw new BadRequestException('commissionRate must be between 0 and 100');
+      throw new BadRequestException('La comisión debe estar entre 0 y 100');
     return n;
   }
   async list(spaId: string, q: PaginationDto) {
@@ -66,7 +66,7 @@ export class ProfessionalsService {
         },
       },
     });
-    if (!p) throw new NotFoundException('Professional not found');
+    if (!p) throw new NotFoundException('No se encontró la profesional');
     return p;
   }
   async own(spaId: string, userId: string) {
@@ -85,7 +85,7 @@ export class ProfessionalsService {
         },
       },
     });
-    if (!p) throw new NotFoundException('Professional profile not found');
+    if (!p) throw new NotFoundException('No se encontró el perfil profesional');
     return p;
   }
   async create(spaId: string, actorUserId: string, d: CreateProfessionalDto) {
@@ -127,7 +127,7 @@ export class ProfessionalsService {
           error instanceof Prisma.PrismaClientKnownRequestError &&
           error.code === 'P2002'
         )
-          throw new ConflictException('Email already exists');
+          throw new ConflictException('Ese correo ya está registrado');
         throw error;
       });
     await this.audit.record({
@@ -147,13 +147,13 @@ export class ProfessionalsService {
     const user = await this.prisma.user.findFirst({
       where: { id: actorUserId, spaId, role: 'SPA_ADMIN' },
     });
-    if (!user) throw new NotFoundException('Spa administrator not found');
+    if (!user) throw new NotFoundException('No se encontró la administradora');
     const exists = await this.prisma.professional.findUnique({
       where: { userId: actorUserId },
     });
     if (exists)
       throw new ConflictException(
-        'The administrator already has a professional profile',
+        'La administradora ya tiene un perfil profesional',
       );
     const professional = await this.prisma.professional.create({
       data: {
@@ -219,5 +219,36 @@ export class ProfessionalsService {
       metadata: { isActive: d.isActive ?? null },
     });
     return professional;
+  }
+  async resetPassword(
+    spaId: string,
+    actorUserId: string,
+    id: string,
+    password: string,
+  ) {
+    const current = await this.get(spaId, id);
+    if (current.user.role !== 'PROFESSIONAL') {
+      throw new BadRequestException(
+        'Solo puedes restablecer la contraseña de una profesional',
+      );
+    }
+    await this.prisma.$transaction(async (tx) => {
+      await tx.user.update({
+        where: { id_spaId: { id: current.userId, spaId } },
+        data: { passwordHash: await argon2.hash(password) },
+      });
+      await tx.session.updateMany({
+        where: { userId: current.userId, revokedAt: null },
+        data: { revokedAt: new Date() },
+      });
+    });
+    await this.audit.record({
+      spaId,
+      actorUserId,
+      action: 'PROFESSIONAL_PASSWORD_RESET',
+      entityType: 'User',
+      entityId: current.userId,
+    });
+    return { success: true };
   }
 }

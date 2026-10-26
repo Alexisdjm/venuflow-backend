@@ -20,6 +20,12 @@ export class CreateOwnProfessionalDto {
   @IsString() @MinLength(2) displayName!: string;
   @IsDecimal({ decimal_digits: '0,2' }) commissionRate!: string;
 }
+export class ResetProfessionalPasswordDto {
+  @IsString()
+  @MinLength(12, { message: 'La nueva contraseña debe tener al menos 12 caracteres.' })
+  @MaxLength(128)
+  password!: string;
+}
 export class UpdateProfessionalDto {
   @IsOptional() @IsString() @MinLength(2) displayName?: string;
   @IsOptional() @IsDecimal({ decimal_digits: '0,2' }) commissionRate?: string;

@@ -94,7 +94,7 @@ export class CustomersService {
         },
       },
     });
-    if (!customer) throw new NotFoundException('Customer not found');
+    if (!customer) throw new NotFoundException('No se encontró el cliente');
     return customer;
   }
 
@@ -113,7 +113,7 @@ export class CustomersService {
           error.code === 'P2002'
         )
           throw new ConflictException(
-            'A customer with this national ID already exists',
+            'Ya existe un cliente con esa cédula',
           );
         throw error;
       });
@@ -136,7 +136,7 @@ export class CustomersService {
         nationalId: true,
       },
     });
-    if (!customer) throw new NotFoundException('Customer not found');
+    if (!customer) throw new NotFoundException('No se encontró el cliente');
     try {
       await this.prisma.$transaction(async (tx) => {
         await tx.appointment.deleteMany({

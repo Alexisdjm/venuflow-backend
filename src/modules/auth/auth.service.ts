@@ -1,10 +1,11 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, Injectable, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import * as argon2 from 'argon2';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { PrismaService } from '../../database/prisma/prisma.service';
 import { UserRole } from '../../generated/prisma/enums';
+import { ChangePasswordDto } from './dto/change-password.dto';
 import { LoginDto } from './dto/login.dto';
 
 type SessionUser = {
@@ -56,7 +57,7 @@ export class AuthService {
       user.status !== 'ACTIVE' ||
       (user.spa && user.spa.status !== 'ACTIVE')
     )
-      throw new UnauthorizedException('Invalid email or password');
+      throw new UnauthorizedException('Correo o contraseña incorrectos');
 
     const refreshToken = randomBytes(48).toString('base64url');
     const expiresAt = this.refreshExpiry();
@@ -137,6 +138,21 @@ export class AuthService {
         where: { familyId: session.familyId, revokedAt: null },
         data: { revokedAt: new Date() },
       });
+    return { success: true };
+  }
+
+  async changePassword(userId: string, dto: ChangePasswordDto) {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) throw new UnauthorizedException('La contraseña actual no es correcta');
+    const valid = await argon2.verify(user.passwordHash, dto.currentPassword).catch(() => false);
+    if (!valid) throw new UnauthorizedException('La contraseña actual no es correcta');
+    if (dto.currentPassword === dto.newPassword) {
+      throw new BadRequestException('La nueva contraseña debe ser distinta de la actual');
+    }
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { passwordHash: await argon2.hash(dto.newPassword) },
+    });
     return { success: true };
   }
 

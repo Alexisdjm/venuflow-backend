@@ -81,6 +81,7 @@ describe('HTTP controllers', () => {
       login: jest.fn().mockResolvedValue('login'),
       refresh: jest.fn().mockResolvedValue('refresh'),
       logout: jest.fn().mockResolvedValue('logout'),
+      changePassword: jest.fn().mockResolvedValue({ success: true }),
       me: jest.fn().mockResolvedValue('me'),
     };
     const controller = new AuthController(auth as never);
@@ -88,6 +89,10 @@ describe('HTTP controllers', () => {
     await controller.login({ email: 'a@b.com', password: 'password1234' });
     await controller.refresh({ refreshToken: 'refresh-token' });
     await controller.logout({ refreshToken: 'refresh-token' });
+    await controller.changePassword(admin, {
+      currentPassword: 'current-password',
+      newPassword: 'new-password-123',
+    });
     await controller.me(admin);
 
     expect(auth.login).toHaveBeenCalledWith({
@@ -96,6 +101,10 @@ describe('HTTP controllers', () => {
     });
     expect(auth.refresh).toHaveBeenCalledWith('refresh-token');
     expect(auth.logout).toHaveBeenCalledWith('refresh-token');
+    expect(auth.changePassword).toHaveBeenCalledWith('user-1', {
+      currentPassword: 'current-password',
+      newPassword: 'new-password-123',
+    });
     expect(auth.me).toHaveBeenCalledWith('user-1');
   });
 
@@ -311,6 +320,7 @@ describe('HTTP controllers', () => {
       createForAdmin: jest.fn(),
       get: jest.fn(),
       update: jest.fn(),
+      resetPassword: jest.fn(),
     };
     const services = { listForProfessional: jest.fn() };
     const spas = { updateOperatingHours: jest.fn() };
@@ -335,6 +345,7 @@ describe('HTTP controllers', () => {
     controller.createOwnProfessionalProfile(admin, {} as never);
     controller.get(admin, 'pro');
     controller.update(admin, 'pro', {} as never);
+    controller.resetPassword(admin, 'pro', { password: 'new-password-123' });
     controller.servicesForProfessional(admin, 'pro');
 
     expect(prisma.spa.findUniqueOrThrow).toHaveBeenCalledWith({
@@ -352,6 +363,12 @@ describe('HTTP controllers', () => {
       'spa-1',
       'user-1',
       {},
+    );
+    expect(professionals.resetPassword).toHaveBeenCalledWith(
+      'spa-1',
+      'user-1',
+      'pro',
+      'new-password-123',
     );
     expect(services.listForProfessional).toHaveBeenCalledWith('spa-1', 'pro');
 

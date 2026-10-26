@@ -1,4 +1,4 @@
-import { UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, UnauthorizedException } from '@nestjs/common';
 import * as argon2 from 'argon2';
 import { AuthService } from './auth.service';
 describe('AuthService', () => {
@@ -176,5 +176,62 @@ describe('AuthService', () => {
       where: { familyId: 'family-id', revokedAt: null },
       data: { revokedAt: expect.any(Date) },
     });
+  });
+
+  it('changes the password when the current one matches', async () => {
+    const passwordHash = await argon2.hash('current-password');
+    const prisma = {
+      user: {
+        findUnique: jest.fn().mockResolvedValue({ id: 'u', passwordHash }),
+        update: jest.fn(),
+      },
+    };
+    const service = new AuthService(
+      prisma as never,
+      jwt as never,
+      config as never,
+    );
+
+    await expect(
+      service.changePassword('u', {
+        currentPassword: 'current-password',
+        newPassword: 'new-password-123',
+      }),
+    ).resolves.toEqual({ success: true });
+    expect(prisma.user.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'u' },
+        data: { passwordHash: expect.any(String) },
+      }),
+    );
+  });
+
+  it('rejects a wrong current password and a repeated one', async () => {
+    const passwordHash = await argon2.hash('current-password');
+    const prisma = {
+      user: {
+        findUnique: jest.fn().mockResolvedValue({ id: 'u', passwordHash }),
+        update: jest.fn(),
+      },
+    };
+    const service = new AuthService(
+      prisma as never,
+      jwt as never,
+      config as never,
+    );
+
+    await expect(
+      service.changePassword('u', {
+        currentPassword: 'wrong-password',
+        newPassword: 'new-password-123',
+      }),
+    ).rejects.toBeInstanceOf(UnauthorizedException);
+    await expect(
+      service.changePassword('u', {
+        currentPassword: 'current-password',
+        newPassword: 'current-password',
+      }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(prisma.user.update).not.toHaveBeenCalled();
   });
 });

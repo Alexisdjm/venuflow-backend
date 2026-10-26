@@ -39,10 +39,10 @@ export class AppointmentBundlesService {
     const categories = new Set<string>();
     for (const item of items) {
       const service = await this.service(spaId, item.serviceId);
-      if (!service?.isActive) throw new NotFoundException('Service not found');
+      if (!service?.isActive) throw new NotFoundException('No se encontró el servicio');
       if (categories.has(service.categoryId))
         throw new ConflictException(
-          'A combined appointment cannot repeat a service category',
+          'Una cita combinada no puede repetir la misma categoría',
         );
       categories.add(service.categoryId);
       const durationMinutes =
@@ -51,23 +51,23 @@ export class AppointmentBundlesService {
           : service.durationMinutes;
       if (!durationMinutes)
         throw new BadRequestException(
-          'durationMinutes is required for variable-duration services',
+          'Indica la duración del servicio',
         );
       let price = service.price;
       if (service.priceType === 'VARIABLE') {
         if (item.additionalPrice === undefined)
           throw new BadRequestException(
-            'additionalPrice is required for variable-price services',
+            'Indica el adicional del servicio',
           );
         const additional = new Prisma.Decimal(item.additionalPrice);
         if (additional.isNegative())
           throw new BadRequestException(
-            'additionalPrice must be zero or greater',
+            'El adicional no puede ser negativo',
           );
         price = price.plus(additional);
       } else if (item.additionalPrice !== undefined) {
         throw new BadRequestException(
-          'additionalPrice is only allowed for variable-price services',
+          'Este servicio no admite un adicional',
         );
       }
       resolved.push({
@@ -85,7 +85,7 @@ export class AppointmentBundlesService {
       where: { spaId: u.spaId!, userId: u.sub, isActive: true },
     });
     if (!professional)
-      throw new NotFoundException('Professional profile not found');
+      throw new NotFoundException('No se encontró el perfil profesional');
     return professional.id;
   }
 
@@ -102,7 +102,7 @@ export class AppointmentBundlesService {
     const localDate = DateTime.fromISO(date, { zone: spa.timezone }).startOf(
       'day',
     );
-    if (!localDate.isValid) throw new BadRequestException('Invalid date');
+    if (!localDate.isValid) throw new BadRequestException('La fecha no es válida');
     const ownId =
       u.role === 'PROFESSIONAL' ? await this.ownProfessional(u) : undefined;
     const serviceIds = items.map((item) => item.service.id);
@@ -224,7 +224,7 @@ export class AppointmentBundlesService {
     const items = await this.resolveItems(u.spaId!, dto.items);
     const requestedStart = DateTime.fromISO(dto.startAt, { setZone: true });
     if (!requestedStart.isValid)
-      throw new BadRequestException('Invalid startAt');
+      throw new BadRequestException('El horario no es válido');
     const spa = await this.prisma.spa.findUniqueOrThrow({
       where: { id: u.spaId! },
       select: { timezone: true },
@@ -239,7 +239,7 @@ export class AppointmentBundlesService {
     const plan = plans[0];
     if (!plan)
       throw new ConflictException(
-        'The complete service sequence is no longer available',
+        'La secuencia de servicios ya no está disponible',
       );
     try {
       return await this.prisma.$transaction(async (tx) => {
@@ -249,8 +249,19 @@ export class AppointmentBundlesService {
             })
           : null;
         if (dto.customerId && !customer)
-          throw new NotFoundException('Customer not found');
-        if (!customer)
+          throw new NotFoundException('No se encontró el cliente');
+        let customerWasCreated = false;
+        if (!customer && dto.customerNationalId) {
+          customer = await tx.customer.findUnique({
+            where: {
+              spaId_nationalId: {
+                spaId: u.spaId!,
+                nationalId: dto.customerNationalId,
+              },
+            },
+          });
+        }
+        if (!customer) {
           customer = await tx.customer.create({
             data: {
               spaId: u.spaId!,
@@ -260,6 +271,8 @@ export class AppointmentBundlesService {
               email: dto.customerEmail,
             },
           });
+          customerWasCreated = true;
+        }
         const created = [];
         for (let index = 0; index < plan.segments.length; index += 1) {
           const segment = plan.segments[index];
@@ -293,7 +306,10 @@ export class AppointmentBundlesService {
             }),
           );
         }
-        return created;
+        return {
+          appointments: created,
+          customerStatus: customerWasCreated ? 'new' : 'recurring',
+        };
       });
     } catch (error) {
       if (
@@ -301,12 +317,12 @@ export class AppointmentBundlesService {
         error.code === 'P2002'
       )
         throw new ConflictException(
-          'The customer already has an appointment in one of these categories for this date',
+          'Esta clienta ya tiene una cita de una de estas categorías en la fecha seleccionada',
         );
       const message = error instanceof Error ? error.message : String(error);
       if (message.includes('23P01') || message.includes('exclusion constraint'))
         throw new ConflictException(
-          'The complete service sequence is no longer available',
+          'La secuencia de servicios ya no está disponible',
         );
       throw error;
     }

@@ -60,6 +60,28 @@ describe('MailService', () => {
     expect(body.htmlContent).toContain('VF-ABC12345');
   });
 
+  it('sends the updated schedule for a remote appointment', async () => {
+    const fetchMock = jest
+      .spyOn(global, 'fetch')
+      .mockResolvedValue(new Response(null, { status: 201 }));
+    const service = new MailService(config());
+
+    await service.sendBookingUpdate({
+      ...message,
+      previousWhen: 'martes, 27 oct 2026, 10:00 a. m.',
+      reference: 'Código VF-ABC12345.',
+    });
+
+    const body = JSON.parse(String(fetchMock.mock.calls[0][1]?.body)) as {
+      subject: string;
+      htmlContent: string;
+    };
+    expect(body.subject).toBe('Tu cita en VenueFlow fue actualizada');
+    expect(body.htmlContent).toContain('Tu cita cambió');
+    expect(body.htmlContent).toContain('VF-ABC12345');
+    expect(body.htmlContent).toContain('https://reservas.example/booking/verify?token=abc');
+  });
+
   it('refuses to send when Brevo is not configured', async () => {
     const service = new MailService(new ConfigService({}));
     await expect(service.sendBookingVerification(message)).rejects.toBeInstanceOf(

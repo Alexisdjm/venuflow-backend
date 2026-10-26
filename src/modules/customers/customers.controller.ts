@@ -23,7 +23,7 @@ import { UpdateCustomerDto } from './dto/update-customer.dto';
 @ApiBearerAuth()
 @Controller('spa/customers')
 @UseGuards(AuthGuard('jwt'), RolesGuard)
-@Roles('SPA_ADMIN', 'PROFESSIONAL')
+@Roles('SPA_ADMIN')
 export class CustomersController {
   constructor(private readonly customers: CustomersService) {}
 

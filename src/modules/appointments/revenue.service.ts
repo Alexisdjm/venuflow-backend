@@ -14,7 +14,7 @@ export class RevenueService {
     const reference = query.date
       ? DateTime.fromISO(query.date, { zone: spa.timezone })
       : DateTime.now().setZone(spa.timezone);
-    if (!reference.isValid) throw new BadRequestException('Invalid date');
+    if (!reference.isValid) throw new BadRequestException('La fecha no es válida');
     const period = query.period ?? 'day';
     const start =
       period === 'week'

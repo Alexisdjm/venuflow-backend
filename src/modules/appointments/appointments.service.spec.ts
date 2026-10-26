@@ -118,7 +118,7 @@ describe('AppointmentsService', () => {
         customerId: 'customer-id',
         startAt: '2026-10-24T17:00:00.000Z',
       }),
-    ).resolves.toEqual(appointment);
+    ).resolves.toEqual({ ...appointment, customerStatus: 'recurring' });
     expect(prisma.appointment.create).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({ isWalkIn: true }),
@@ -159,6 +159,7 @@ describe('AppointmentsService', () => {
         findFirst: jest.fn().mockResolvedValue({ id: 'schedule-id' }),
       },
       customer: {
+        findUnique: jest.fn().mockResolvedValue(null),
         create: jest.fn().mockResolvedValue({
           id: 'customer-id',
           name: 'Ana Pérez',
@@ -182,7 +183,7 @@ describe('AppointmentsService', () => {
         customerNationalId: '12345678',
         customerPhone: '04120000000',
       }),
-    ).resolves.toEqual(appointment);
+    ).resolves.toEqual({ ...appointment, customerStatus: 'new' });
     expect(prisma.appointment.create).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
@@ -271,7 +272,7 @@ describe('AppointmentsService', () => {
         startAt: future()!,
       }),
     ).rejects.toThrow(
-      'Esta cliente ya tiene una cita de esta categoría en la fecha seleccionada',
+      'Esta clienta ya tiene una cita de esta categoría en la fecha seleccionada',
     );
     expect(prisma.appointment.findFirst).toHaveBeenCalledWith({
       where: expect.objectContaining({
@@ -282,6 +283,63 @@ describe('AppointmentsService', () => {
       select: { id: true },
     });
     expect(prisma.professionalService.findMany).not.toHaveBeenCalled();
+  });
+
+  it('reuses an existing customer by national id without changing their data', async () => {
+    const existing = {
+      id: 'customer-id',
+      name: 'Ana Pérez',
+      nationalId: '12345678',
+      phone: '04120000000',
+      email: 'ana@example.com',
+    };
+    const appointment = { id: 'appointment-id' };
+    const prisma = {
+      spaService: { findUnique: jest.fn().mockResolvedValue(fixedService) },
+      spa: { findUniqueOrThrow: jest.fn().mockResolvedValue(spa) },
+      professionalService: {
+        findMany: jest.fn().mockResolvedValue([{ professionalId: 'pro-id' }]),
+        findFirst: jest.fn().mockResolvedValue({
+          professional: { commissionRate: new Prisma.Decimal(40) },
+        }),
+      },
+      professionalSchedule: {
+        findFirst: jest.fn().mockResolvedValue({ id: 'schedule-id' }),
+      },
+      customer: {
+        findUnique: jest.fn().mockResolvedValue(existing),
+        create: jest.fn(),
+        update: jest.fn(),
+      },
+      appointment: {
+        findFirst: jest.fn().mockResolvedValue(null),
+        create: jest.fn().mockResolvedValue(appointment),
+      },
+    };
+    const service = new AppointmentsService(prisma as never, audit as never);
+
+    await expect(
+      service.create(admin, {
+        serviceId: 'service-id',
+        startAt: future()!,
+        customerName: 'Otro nombre',
+        customerNationalId: '12345678',
+        customerPhone: '04149999999',
+        customerEmail: 'otro@example.com',
+      }),
+    ).resolves.toEqual({ ...appointment, customerStatus: 'recurring' });
+    expect(prisma.customer.create).not.toHaveBeenCalled();
+    expect(prisma.customer.update).not.toHaveBeenCalled();
+    expect(prisma.appointment.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          customerId: 'customer-id',
+          customerName: 'Ana Pérez',
+          customerPhone: '04120000000',
+          customerEmail: 'ana@example.com',
+        }),
+      }),
+    );
   });
 
   it('reports no availability when no assigned professional has a schedule', async () => {
@@ -480,5 +538,51 @@ describe('AppointmentsService', () => {
         where: expect.objectContaining({ professionalId: 'own-pro-id' }),
       }),
     );
+  });
+
+  it('emails a remote appointment when the dashboard changes or cancels it', async () => {
+    const mail = {
+      sendBookingCancellation: jest.fn().mockResolvedValue(undefined),
+      sendBookingUpdate: jest.fn().mockResolvedValue(undefined),
+    };
+    const current = {
+      id: '6fd984f7-a0a7-403b-a63a-d104a461d8a2',
+      spaId: 'spa-id',
+      status: 'CONFIRMED',
+      customerName: 'Ana',
+      startAt: new Date('2030-01-10T14:00:00.000Z'),
+      endAt: new Date('2030-01-10T15:00:00.000Z'),
+      professionalId: 'pro-id',
+      service: { ...fixedService, name: 'Manos Sencillas' },
+      bookingRequest: { id: 'request-id', email: 'ana@example.com', token: 'token' },
+    };
+    const prisma = {
+      appointment: {
+        findFirst: jest.fn().mockResolvedValue(current),
+        update: jest.fn().mockResolvedValue({
+          ...current,
+          status: 'CANCELLED',
+          professionalId: 'pro-id',
+          startAt: current.startAt,
+        }),
+      },
+      bookingRequest: { update: jest.fn().mockResolvedValue({}) },
+      spa: { findUnique: jest.fn().mockResolvedValue({ name: 'EmiNails', timezone: 'America/Caracas' }) },
+      professional: { findFirst: jest.fn().mockResolvedValue({ displayName: 'Ana M' }) },
+    };
+    const service = new AppointmentsService(
+      prisma as never,
+      audit as never,
+      mail as never,
+      { get: () => 'http://localhost:3002' } as never,
+    );
+
+    await service.update(admin, current.id, { status: 'CANCELLED' });
+
+    expect(mail.sendBookingCancellation).toHaveBeenCalledWith(
+      expect.objectContaining({ to: 'ana@example.com', serviceName: 'Manos Sencillas' }),
+    );
+    expect(mail.sendBookingUpdate).not.toHaveBeenCalled();
+    expect(prisma.bookingRequest.update).toHaveBeenCalled();
   });
 });

@@ -177,4 +177,50 @@ describe('ProfessionalsService', () => {
       expect.objectContaining({ action: 'PROFESSIONAL_UPDATED' }),
     );
   });
+
+  it('resets a professional password and closes her sessions', async () => {
+    const current = {
+      id: 'pro',
+      userId: 'user',
+      user: { role: 'PROFESSIONAL' },
+    };
+    const tx = {
+      user: { update: jest.fn() },
+      session: { updateMany: jest.fn() },
+    };
+    const prisma = {
+      professional: { findUnique: jest.fn().mockResolvedValue(current) },
+      $transaction: jest.fn((callback) => callback(tx)),
+    };
+    const service = new ProfessionalsService(prisma as never, audit as never);
+
+    await service.resetPassword('spa', 'actor', 'pro', 'new-password-12');
+
+    expect(tx.user.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: { passwordHash: 'hash' } }),
+    );
+    expect(tx.session.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { userId: 'user', revokedAt: null } }),
+    );
+    expect(audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'PROFESSIONAL_PASSWORD_RESET' }),
+    );
+  });
+
+  it('refuses to reset an administrator password from her professional profile', async () => {
+    const prisma = {
+      professional: {
+        findUnique: jest.fn().mockResolvedValue({
+          id: 'pro',
+          userId: 'admin',
+          user: { role: 'SPA_ADMIN' },
+        }),
+      },
+    };
+    const service = new ProfessionalsService(prisma as never, audit as never);
+
+    await expect(
+      service.resetPassword('spa', 'actor', 'pro', 'new-password-12'),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
 });

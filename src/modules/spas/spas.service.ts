@@ -40,7 +40,7 @@ export class SpasService {
           error instanceof Prisma.PrismaClientKnownRequestError &&
           error.code === 'P2002'
         )
-          throw new ConflictException('Spa slug already exists');
+          throw new ConflictException('Ya existe un spa con ese identificador');
         throw error;
       });
     await this.audit.record({
@@ -66,7 +66,7 @@ export class SpasService {
   }
   async get(id: string) {
     const spa = await this.prisma.spa.findUnique({ where: { id } });
-    if (!spa) throw new NotFoundException('Spa not found');
+    if (!spa) throw new NotFoundException('No se encontró el spa');
     return spa;
   }
   async update(actorUserId: string, id: string, dto: UpdateSpaDto) {
@@ -90,7 +90,7 @@ export class SpasService {
     walkInGraceMinutes?: number,
   ) {
     if (openingMinute >= closingMinute)
-      throw new BadRequestException('Opening time must be before closing time');
+      throw new BadRequestException('La hora de apertura debe ser anterior a la de cierre');
     const scheduleOutsideHours =
       await this.prisma.professionalSchedule.findFirst({
         where: {
@@ -103,7 +103,7 @@ export class SpasService {
       });
     if (scheduleOutsideHours)
       throw new ConflictException(
-        'Adjust existing professional schedules before reducing the operating hours',
+        'Ajusta las jornadas existentes antes de reducir el horario del spa',
       );
     const serviceOutsideHours = await this.prisma.spaService.findFirst({
       where: {
@@ -114,7 +114,7 @@ export class SpasService {
     });
     if (serviceOutsideHours)
       throw new ConflictException(
-        'Adjust existing service durations before reducing the operating hours',
+        'Ajusta la duración de los servicios antes de reducir el horario del spa',
       );
     const spa = await this.prisma.spa.update({
       where: { id: spaId },
@@ -139,7 +139,7 @@ export class SpasService {
     const exists = await this.prisma.user.findFirst({
       where: { spaId, role: 'SPA_ADMIN' },
     });
-    if (exists) throw new ConflictException('Spa already has an administrator');
+    if (exists) throw new ConflictException('Este spa ya tiene una administradora');
     const admin = await this.prisma.user
       .create({
         data: {
@@ -166,7 +166,7 @@ export class SpasService {
           error instanceof Prisma.PrismaClientKnownRequestError &&
           error.code === 'P2002'
         )
-          throw new ConflictException('Email already exists');
+          throw new ConflictException('Ese correo ya está registrado');
         throw error;
       });
     await this.audit.record({

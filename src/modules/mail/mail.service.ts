@@ -16,6 +16,7 @@ export type BookingMail = {
   expiresAt?: string;
   verificationUrl?: string;
   reference?: string;
+  previousWhen?: string;
 };
 
 @Injectable()
@@ -35,6 +36,25 @@ export class MailService {
         professionalName: message.professionalName,
         when: message.when,
         expiresAt: message.expiresAt ?? '',
+        verificationUrl: message.verificationUrl ?? '',
+      }),
+    );
+  }
+
+  sendBookingUpdate(message: BookingMail) {
+    return this.send(
+      message.to,
+      message.customerName,
+      'Tu cita en VenueFlow fue actualizada',
+      'No se pudo enviar el correo de actualización',
+      renderMailTemplate('booking-update.html', {
+        customerName: message.customerName,
+        spaName: message.spaName,
+        serviceName: message.serviceName,
+        professionalName: message.professionalName,
+        previousWhen: message.previousWhen ?? '',
+        when: message.when,
+        reference: message.reference ?? 'Revisa el nuevo horario.',
         verificationUrl: message.verificationUrl ?? '',
       }),
     );

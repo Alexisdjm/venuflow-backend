@@ -31,7 +31,7 @@ export class SchedulesService {
     const value = await this.prisma.professional.findUnique({
       where: { id_spaId: { id, spaId } },
     });
-    if (!value) throw new NotFoundException('Professional not found');
+    if (!value) throw new NotFoundException('No se encontró la profesional');
     return value;
   }
   private async assertOperatingHours(
@@ -45,7 +45,7 @@ export class SchedulesService {
     });
     if (startMinute < spa.openingMinute || endMinute > spa.closingMinute)
       throw new BadRequestException(
-        'Schedule must be within the spa operating hours',
+        'La jornada debe quedar dentro del horario del spa',
       );
   }
   async list(spaId: string, professionalId: string) {
@@ -62,7 +62,7 @@ export class SchedulesService {
       where: { spaId, userId },
     });
     if (!professional)
-      throw new NotFoundException('Professional profile not found');
+      throw new NotFoundException('No se encontró el perfil profesional');
     return this.list(spaId, professional.id);
   }
   async create(
@@ -75,7 +75,7 @@ export class SchedulesService {
     const startMinute = this.minutes(dto.startTime),
       endMinute = this.minutes(dto.endTime);
     if (startMinute >= endMinute)
-      throw new BadRequestException('startTime must be before endTime');
+      throw new BadRequestException('La hora de inicio debe ser anterior a la de cierre');
     await this.assertOperatingHours(spaId, startMinute, endMinute);
     const overlap = await this.prisma.professionalSchedule.findFirst({
       where: {
@@ -88,7 +88,7 @@ export class SchedulesService {
       },
     });
     if (overlap)
-      throw new ConflictException('Schedule overlaps an existing interval');
+      throw new ConflictException('La jornada se cruza con otro horario');
     const schedule = await this.prisma.professionalSchedule.create({
       data: {
         spaId,
@@ -117,7 +117,7 @@ export class SchedulesService {
     const current = await this.prisma.professionalSchedule.findUnique({
       where: { id_spaId: { id, spaId } },
     });
-    if (!current) throw new NotFoundException('Schedule not found');
+    if (!current) throw new NotFoundException('No se encontró el horario');
     const startMinute = dto.startTime
       ? this.minutes(dto.startTime)
       : current.startMinute;
@@ -125,7 +125,7 @@ export class SchedulesService {
       ? this.minutes(dto.endTime)
       : current.endMinute;
     if (startMinute >= endMinute)
-      throw new BadRequestException('startTime must be before endTime');
+      throw new BadRequestException('La hora de inicio debe ser anterior a la de cierre');
     await this.assertOperatingHours(spaId, startMinute, endMinute);
     const active = dto.isActive ?? current.isActive;
     if (active) {
@@ -141,7 +141,7 @@ export class SchedulesService {
         },
       });
       if (overlap)
-        throw new ConflictException('Schedule overlaps an existing interval');
+        throw new ConflictException('La jornada se cruza con otro horario');
     }
     const schedule = await this.prisma.professionalSchedule.update({
       where: { id_spaId: { id, spaId } },
@@ -165,7 +165,7 @@ export class SchedulesService {
     const schedule = await this.prisma.professionalSchedule.findFirst({
       where: { id, spaId, professionalId },
     });
-    if (!schedule) throw new NotFoundException('Schedule not found');
+    if (!schedule) throw new NotFoundException('No se encontró el horario');
     await this.prisma.professionalSchedule.delete({
       where: { id_spaId: { id, spaId } },
     });

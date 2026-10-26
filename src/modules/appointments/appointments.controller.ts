@@ -43,6 +43,7 @@ export class AppointmentsController {
     return this.appointments.create(u, d);
   }
   @Post('bundle/availability')
+  @Roles('SPA_ADMIN')
   bundleAvailability(
     @CurrentUser() u: AuthUser,
     @Body() d: BundleAvailabilityDto,
@@ -50,6 +51,7 @@ export class AppointmentsController {
     return this.bundles.availability(u, d);
   }
   @Post('bundle')
+  @Roles('SPA_ADMIN')
   createBundle(
     @CurrentUser() u: AuthUser,
     @Body() d: CreateAppointmentBundleDto,

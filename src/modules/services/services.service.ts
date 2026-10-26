@@ -26,7 +26,7 @@ export class ServicesService {
   private money(value: string) {
     const amount = new Prisma.Decimal(value);
     if (amount.lt(0))
-      throw new BadRequestException('price must be zero or greater');
+      throw new BadRequestException('El precio no puede ser negativo');
     return amount;
   }
   private async validateDuration(spaId: string, durationMinutes?: number) {
@@ -38,7 +38,7 @@ export class ServicesService {
     const maximumDuration = spa.closingMinute - spa.openingMinute;
     if (durationMinutes > maximumDuration)
       throw new BadRequestException(
-        `durationMinutes cannot exceed the spa operating window (${maximumDuration} minutes)`,
+        `La duración supera el horario del spa (${maximumDuration} minutos)`,
       );
   }
   private categoryName(name: string) {
@@ -76,7 +76,7 @@ export class ServicesService {
       where: { id_spaId: { id, spaId } },
       include: { category: categorySelection },
     });
-    if (!service) throw new NotFoundException('Service not found');
+    if (!service) throw new NotFoundException('No se encontró el servicio');
     return service;
   }
   listCategories(spaId: string) {
@@ -190,7 +190,7 @@ export class ServicesService {
     const durationType = dto.durationType ?? 'FIXED';
     if (durationType === 'FIXED' && dto.durationMinutes === undefined)
       throw new BadRequestException(
-        'durationMinutes is required for fixed-duration services',
+        'Indica la duración del servicio',
       );
     await this.validateDuration(spaId, dto.durationMinutes);
     await this.requireCategory(spaId, dto.categoryId);
@@ -214,7 +214,7 @@ export class ServicesService {
           error.code === 'P2002'
         )
           throw new ConflictException(
-            'A service with this name already exists',
+            'Ya existe un servicio con ese nombre',
           );
         throw error;
       });
@@ -241,7 +241,7 @@ export class ServicesService {
         : (dto.durationMinutes ?? current.durationMinutes);
     if (durationType === 'FIXED' && durationMinutes === null)
       throw new BadRequestException(
-        'durationMinutes is required for fixed-duration services',
+        'Indica la duración del servicio',
       );
     await this.validateDuration(spaId, durationMinutes ?? undefined);
     if (dto.categoryId) await this.requireCategory(spaId, dto.categoryId);
@@ -262,7 +262,7 @@ export class ServicesService {
           error.code === 'P2002'
         )
           throw new ConflictException(
-            'A service with this name already exists',
+            'Ya existe un servicio con ese nombre',
           );
         throw error;
       });
@@ -290,7 +290,7 @@ export class ServicesService {
       }),
     ]);
     if (!professional || !service)
-      throw new NotFoundException('Professional or service not found');
+      throw new NotFoundException('No se encontró la profesional o el servicio');
     const assignment = await this.prisma.professionalService.upsert({
       where: { professionalId_serviceId: { professionalId, serviceId } },
       create: { spaId, professionalId, serviceId },
@@ -317,7 +317,7 @@ export class ServicesService {
       where: { spaId, professionalId, serviceId },
     });
     if (!assignment)
-      throw new NotFoundException('Service assignment not found');
+      throw new NotFoundException('No se encontró la asignación del servicio');
     await this.prisma.professionalService.delete({
       where: { professionalId_serviceId: { professionalId, serviceId } },
     });
@@ -342,7 +342,7 @@ export class ServicesService {
       where: { spaId, userId },
     });
     if (!professional)
-      throw new NotFoundException('Professional profile not found');
+      throw new NotFoundException('No se encontró el perfil profesional');
     return this.listForProfessional(spaId, professional.id);
   }
 }

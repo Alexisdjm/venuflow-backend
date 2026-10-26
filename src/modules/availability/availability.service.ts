@@ -17,23 +17,23 @@ export class AvailabilityService {
       where: { id_spaId: { id: q.serviceId, spaId } },
     });
     if (!service || !service.isActive)
-      throw new NotFoundException('Service not found');
+      throw new NotFoundException('No se encontró el servicio');
     const durationMinutes =
       service.durationType === 'VARIABLE'
         ? q.durationMinutes
         : service.durationMinutes;
     if (durationMinutes === undefined || durationMinutes === null)
       throw new BadRequestException(
-        'durationMinutes is required for variable-duration services',
+        'Indica la duración del servicio',
       );
     if (durationMinutes > spa.closingMinute - spa.openingMinute)
       throw new BadRequestException(
-        'durationMinutes cannot exceed the spa operating window',
+        'La duración supera el horario del spa',
       );
     const localDate = DateTime.fromISO(q.date, { zone: spa.timezone }).startOf(
       'day',
     );
-    if (!localDate.isValid) throw new NotFoundException('Invalid local date');
+    if (!localDate.isValid) throw new NotFoundException('La fecha no es válida');
     const dayOfWeek = localDate.weekday % 7;
     const assignments = await this.prisma.professionalService.findMany({
       where: {

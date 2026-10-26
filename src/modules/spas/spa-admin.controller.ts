@@ -25,6 +25,7 @@ import { UpdateOperatingHoursDto } from './dto/operating-hours.dto';
 import {
   CreateProfessionalDto,
   CreateOwnProfessionalDto,
+  ResetProfessionalPasswordDto,
   UpdateProfessionalDto,
 } from '../professionals/dto/professional.dto';
 @ApiTags('Spa administration')
@@ -97,6 +98,18 @@ export class SpaAdminController {
     @Body() d: UpdateProfessionalDto,
   ) {
     return this.professionals.update(this.tenant(u), u.sub, id, d);
+  }
+  @Post('professionals/:id/password') resetPassword(
+    @CurrentUser() u: AuthUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() d: ResetProfessionalPasswordDto,
+  ) {
+    return this.professionals.resetPassword(
+      this.tenant(u),
+      u.sub,
+      id,
+      d.password,
+    );
   }
   @Get('professionals/:id/services') servicesForProfessional(
     @CurrentUser() u: AuthUser,

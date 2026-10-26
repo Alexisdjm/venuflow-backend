@@ -3,12 +3,15 @@ import {
   ConflictException,
   Injectable,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { DateTime } from 'luxon';
 import type { AuthUser } from '../../common/auth.types';
 import { PrismaService } from '../../database/prisma/prisma.service';
 import { Prisma } from '../../generated/prisma/client';
 import { AuditService } from '../audit/audit.service';
+import { MailService } from '../mail/mail.service';
 import {
   CreateAppointmentDto,
   UpdateAppointmentDto,
@@ -18,6 +21,8 @@ export class AppointmentsService {
   constructor(
     private prisma: PrismaService,
     private audit: AuditService,
+    @Optional() private mail?: MailService,
+    @Optional() private config?: ConfigService,
   ) {}
   private isConcurrentBookingConflict(error: unknown) {
     if (
@@ -42,8 +47,40 @@ export class AppointmentsService {
 
   private categoryConflict() {
     return new ConflictException(
-      'Esta cliente ya tiene una cita de esta categoría en la fecha seleccionada',
+      'Esta clienta ya tiene una cita de esta categoría en la fecha seleccionada',
     );
+  }
+
+  private async customerFor(
+    spaId: string,
+    input: {
+      name: string;
+      nationalId: string;
+      phone: string;
+      email?: string;
+    },
+  ) {
+    const existing = await this.prisma.customer.findUnique({
+      where: { spaId_nationalId: { spaId, nationalId: input.nationalId } },
+    });
+    if (existing) return { customer: existing, created: false };
+    try {
+      const customer = await this.prisma.customer.create({
+        data: { spaId, ...input },
+      });
+      return { customer, created: true };
+    } catch (error) {
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2002'
+      ) {
+        const raced = await this.prisma.customer.findUnique({
+          where: { spaId_nationalId: { spaId, nationalId: input.nationalId } },
+        });
+        if (raced) return { customer: raced, created: false };
+      }
+      throw error;
+    }
   }
 
   private validateSlot(
@@ -60,20 +97,20 @@ export class AppointmentsService {
       typeof startAt === 'string'
         ? DateTime.fromISO(startAt, { setZone: true })
         : DateTime.fromJSDate(startAt);
-    if (!start.isValid) throw new BadRequestException('Invalid startAt');
+    if (!start.isValid) throw new BadRequestException('El horario no es válido');
     const local = start.setZone(spa.timezone);
     if (
       local.minute % 30 !== 0 ||
       local.second !== 0 ||
       local.millisecond !== 0
     )
-      throw new BadRequestException('startAt must use a 30-minute interval');
+      throw new BadRequestException('El horario debe caer en un intervalo de 30 minutos');
     const now = DateTime.utc();
     const isWalkIn = start.toUTC() < now;
     if (isWalkIn) {
       const minutesLate = now.diff(start.toUTC(), 'minutes').minutes;
       if (minutesLate > spa.walkInGraceMinutes)
-        throw new BadRequestException('Appointments cannot start in the past');
+        throw new BadRequestException('No se puede agendar una cita en el pasado');
     }
     const end = start.plus({ minutes: durationMinutes });
     const localEnd = end.setZone(spa.timezone);
@@ -85,7 +122,7 @@ export class AppointmentsService {
       endMinute > spa.closingMinute
     )
       throw new ConflictException(
-        'The appointment is outside the spa operating hours',
+        'La cita queda fuera del horario del spa',
       );
     return { start, end, local, startMinute, endMinute, isWalkIn };
   }
@@ -134,7 +171,7 @@ export class AppointmentsService {
     const p = await this.prisma.professional.findFirst({
       where: { spaId: u.spaId!, userId: u.sub, isActive: true },
     });
-    if (!p) throw new NotFoundException('Professional profile not found');
+    if (!p) throw new NotFoundException('No se encontró el perfil profesional');
     return p;
   }
   async list(
@@ -152,7 +189,7 @@ export class AppointmentsService {
       const start = DateTime.fromISO(date, { zone: spa.timezone }).startOf(
         'day',
       );
-      if (!start.isValid) throw new BadRequestException('Invalid date');
+      if (!start.isValid) throw new BadRequestException('La fecha no es válida');
       range = {
         startAt: {
           gte: start.toUTC().toJSDate(),
@@ -160,7 +197,7 @@ export class AppointmentsService {
         },
       };
     }
-    return this.prisma.appointment.findMany({
+    const appointments = await this.prisma.appointment.findMany({
       where: { spaId: u.spaId!, professionalId, status, ...range },
       include: {
         professional: { select: { displayName: true } },
@@ -173,16 +210,21 @@ export class AppointmentsService {
             price: true,
           },
         },
+        bookingRequest: { select: { id: true } },
       },
       orderBy: { startAt: 'asc' },
     });
+    return appointments.map(({ bookingRequest, ...appointment }) => ({
+      ...appointment,
+      remote: Boolean(bookingRequest),
+    }));
   }
   async create(u: AuthUser, d: CreateAppointmentDto) {
     const spaId = u.spaId!,
       service = await this.prisma.spaService.findUnique({
         where: { id_spaId: { id: d.serviceId, spaId } },
       });
-    if (!service?.isActive) throw new NotFoundException('Service not found');
+    if (!service?.isActive) throw new NotFoundException('No se encontró el servicio');
     const spa = await this.prisma.spa.findUniqueOrThrow({
       where: { id: spaId },
       select: {
@@ -198,23 +240,23 @@ export class AppointmentsService {
         : service.durationMinutes;
     if (durationMinutes === undefined || durationMinutes === null)
       throw new BadRequestException(
-        'durationMinutes is required for variable-duration services',
+        'Indica la duración del servicio',
       );
     let servicePrice = service.price;
     if (service.priceType === 'VARIABLE') {
       if (d.additionalPrice === undefined)
         throw new BadRequestException(
-          'additionalPrice is required for variable-price services',
+          'Indica el adicional del servicio',
         );
       const additionalPrice = new Prisma.Decimal(d.additionalPrice);
       if (additionalPrice.isNegative())
         throw new BadRequestException(
-          'additionalPrice must be zero or greater',
+          'El adicional no puede ser negativo',
         );
       servicePrice = service.price.plus(additionalPrice);
     } else if (d.additionalPrice !== undefined) {
       throw new BadRequestException(
-        'additionalPrice is only allowed for variable-price services',
+        'Este servicio no admite un adicional',
       );
     }
     const slot = this.validateSlot(spa, d.startAt, durationMinutes);
@@ -225,7 +267,7 @@ export class AppointmentsService {
         })
       : null;
     if (d.customerId && !customer)
-      throw new NotFoundException('Customer not found');
+      throw new NotFoundException('No se encontró el cliente');
     if (
       customer &&
       (await this.prisma.appointment.findFirst({
@@ -244,7 +286,7 @@ export class AppointmentsService {
     if (u.role === 'PROFESSIONAL') {
       const own = await this.own(u);
       if (d.professionalId && d.professionalId !== own.id)
-        throw new BadRequestException('Professionals can only book themselves');
+        throw new BadRequestException('Solo puedes agendar citas en tu propia agenda');
       candidates = [own.id];
     } else if (d.professionalId) candidates = [d.professionalId];
     else
@@ -258,6 +300,7 @@ export class AppointmentsService {
           select: { professionalId: true },
         })
       ).map((x) => x.professionalId);
+    let customerWasCreated = false;
     for (const professionalId of candidates) {
       const assignment = await this.availableAssignment(
         spaId,
@@ -268,26 +311,28 @@ export class AppointmentsService {
       if (!assignment) continue;
       try {
         if (!customer) {
-          try {
-            customer = await this.prisma.customer.create({
-              data: {
+          const resolved = await this.customerFor(spaId, {
+            name: d.customerName!,
+            nationalId: d.customerNationalId!,
+            phone: d.customerPhone!,
+            email: d.customerEmail,
+          });
+          customer = resolved.customer;
+          customerWasCreated = resolved.created;
+          if (
+            !resolved.created &&
+            (await this.prisma.appointment.findFirst({
+              where: {
                 spaId,
-                name: d.customerName!,
-                nationalId: d.customerNationalId!,
-                phone: d.customerPhone!,
-                email: d.customerEmail,
+                customerId: customer.id,
+                appointmentDate,
+                serviceCategoryId: service.categoryId,
+                status: { not: 'CANCELLED' },
               },
-            });
-          } catch (error) {
-            if (
-              error instanceof Prisma.PrismaClientKnownRequestError &&
-              error.code === 'P2002'
-            )
-              throw new ConflictException(
-                'A customer with this national ID already exists; select the recurring customer',
-              );
-            throw error;
-          }
+              select: { id: true },
+            }))
+          )
+            throw this.categoryConflict();
         }
         const appointment = await this.prisma.appointment.create({
           data: {
@@ -330,7 +375,10 @@ export class AppointmentsService {
           entityId: appointment.id,
           metadata: { isWalkIn: slot.isWalkIn },
         });
-        return appointment;
+        return {
+          ...appointment,
+          customerStatus: customerWasCreated ? 'new' : 'recurring',
+        };
       } catch (error) {
         if (this.isCustomerCategoryConflict(error))
           throw this.categoryConflict();
@@ -338,7 +386,7 @@ export class AppointmentsService {
         throw error;
       }
     }
-    throw new ConflictException('No professional is available for this time');
+    throw new ConflictException('No hay una profesional disponible en ese horario');
   }
   async update(u: AuthUser, id: string, d: UpdateAppointmentDto) {
     const spaId = u.spaId!,
@@ -346,23 +394,26 @@ export class AppointmentsService {
         u.role === 'PROFESSIONAL' ? (await this.own(u)).id : undefined;
     const current = await this.prisma.appointment.findFirst({
       where: { id, spaId, professionalId: ownProfessional },
-      include: { service: true },
+      include: {
+        service: true,
+        bookingRequest: { select: { id: true, email: true, token: true } },
+      },
     });
-    if (!current) throw new NotFoundException('Appointment not found');
+    if (!current) throw new NotFoundException('No se encontró la cita');
     if (current.status !== 'CONFIRMED')
       throw new ConflictException(
-        'Completed or cancelled appointments cannot be changed',
+        'No se puede modificar una cita completada o cancelada',
       );
     if (!d.status && !d.startAt && !d.professionalId)
-      throw new BadRequestException('Provide a change');
+      throw new BadRequestException('Indica qué quieres cambiar');
     if (d.status === 'COMPLETED') {
       if (d.startAt || d.professionalId)
         throw new BadRequestException(
-          'A completed appointment cannot be rescheduled or transferred',
+          'No se puede reprogramar una cita que ya se completó',
         );
       if (current.endAt.getTime() > Date.now())
         throw new ConflictException(
-          'An appointment cannot be completed before it ends',
+          'La cita todavía no termina, así que no se puede marcar como completada',
         );
     }
     if (
@@ -371,7 +422,7 @@ export class AppointmentsService {
       d.professionalId !== ownProfessional
     )
       throw new BadRequestException(
-        'Professionals cannot transfer appointments',
+        'No puedes pasar la cita a otra profesional',
       );
     const targetProfessionalId = d.professionalId ?? current.professionalId;
     let startAt: Date | undefined,
@@ -381,7 +432,7 @@ export class AppointmentsService {
     if (d.startAt || d.professionalId) {
       if (current.status !== 'CONFIRMED')
         throw new ConflictException(
-          'Only confirmed appointments can be rescheduled',
+          'Solo se pueden reprogramar citas confirmadas',
         );
       const appointmentDuration = Math.round(
         (current.endAt.getTime() - current.startAt.getTime()) / 60000,
@@ -411,7 +462,7 @@ export class AppointmentsService {
       });
       if (!assignment)
         throw new ConflictException(
-          'The professional does not perform this service',
+          'La profesional no realiza este servicio',
         );
       commissionRate = assignment.professional.commissionRate;
       const schedule = await this.prisma.professionalSchedule.findFirst({
@@ -426,7 +477,7 @@ export class AppointmentsService {
       });
       if (!schedule)
         throw new ConflictException(
-          'The new time is outside the professional schedule',
+          'El nuevo horario está fuera de la jornada',
         );
       const conflict = await this.prisma.appointment.findFirst({
         where: {
@@ -440,7 +491,7 @@ export class AppointmentsService {
       });
       if (conflict)
         throw new ConflictException(
-          'The professional is not available at the new time',
+          'La profesional no está disponible en el nuevo horario',
         );
       startAt = slot.start.toUTC().toJSDate();
       endAt = slot.end.toUTC().toJSDate();
@@ -475,7 +526,7 @@ export class AppointmentsService {
       if (this.isCustomerCategoryConflict(error)) throw this.categoryConflict();
       if (this.isConcurrentBookingConflict(error))
         throw new ConflictException(
-          'The professional is not available at the new time',
+          'La profesional no está disponible en el nuevo horario',
         );
       throw error;
     }
@@ -494,6 +545,72 @@ export class AppointmentsService {
         professionalId: d.professionalId ?? null,
       },
     });
+    await this.notifyRemoteChange(current, value, d);
     return value;
   }
+
+  private async notifyRemoteChange(
+    current: {
+      id: string;
+      spaId: string;
+      customerName: string;
+      startAt: Date;
+      professionalId: string;
+      service: { name: string };
+      bookingRequest: { id: string; email: string; token: string } | null;
+    },
+    updated: { professionalId: string; startAt: Date },
+    change: UpdateAppointmentDto,
+  ) {
+    const request = current.bookingRequest;
+    if (!this.mail || !request?.email) return;
+    if (change.status === 'COMPLETED') return;
+    const scheduleChanged = Boolean(change.startAt || change.professionalId);
+    if (change.status !== 'CANCELLED' && !scheduleChanged) return;
+    const spa = await this.prisma.spa.findUnique({
+      where: { id: current.spaId },
+      select: { name: true, timezone: true },
+    });
+    const professional = await this.prisma.professional.findFirst({
+      where: { id: updated.professionalId, spaId: current.spaId },
+      select: { displayName: true },
+    });
+    const timezone = spa?.timezone ?? 'UTC';
+    const message = {
+      to: request.email,
+      customerName: current.customerName,
+      spaName: spa?.name ?? 'VenueFlow',
+      serviceName: current.service.name,
+      professionalName: professional?.displayName ?? 'Profesional',
+      when: this.formatWhen(updated.startAt, timezone),
+      previousWhen: this.formatWhen(current.startAt, timezone),
+      verificationUrl: this.verificationUrl(request.token),
+      reference: `Código ${bookingCode(current.id)}.`,
+    };
+    if (change.status === 'CANCELLED') {
+      await this.prisma.bookingRequest.update({
+        where: { id: request.id },
+        data: { status: 'CANCELLED' },
+      });
+      await this.mail.sendBookingCancellation(message);
+      return;
+    }
+    await this.mail.sendBookingUpdate(message);
+  }
+
+  private verificationUrl(token: string) {
+    const base = this.config?.get<string>('PUBLIC_BOOKING_BASE_URL') ?? 'http://localhost:3002';
+    return `${base.replace(/\/$/, '')}/booking/verify?token=${encodeURIComponent(token)}`;
+  }
+
+  private formatWhen(value: Date, timezone: string) {
+    return DateTime.fromJSDate(value, { zone: 'utc' })
+      .setZone(timezone)
+      .setLocale('es')
+      .toLocaleString(DateTime.DATETIME_FULL);
+  }
+}
+
+function bookingCode(appointmentId: string) {
+  return `VF-${appointmentId.replaceAll('-', '').slice(0, 8).toUpperCase()}`;
 }
