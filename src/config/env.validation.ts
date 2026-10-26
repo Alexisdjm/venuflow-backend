@@ -3,6 +3,8 @@ import {
   IsBoolean,
   IsIn,
   IsInt,
+  IsEmail,
+  IsOptional,
   IsString,
   IsUrl,
   Min,
@@ -28,6 +30,27 @@ class EnvironmentVariables {
   @IsBoolean()
   SWAGGER_ENABLED = true;
   @IsString() CORS_ORIGINS = 'http://localhost:3001';
+  @Transform(({ value }) => blankToUndefined(value))
+  @IsOptional()
+  @IsString()
+  BREVO_API_KEY?: string;
+  @Transform(({ value }) => blankToUndefined(value))
+  @IsOptional()
+  @IsEmail()
+  BREVO_SENDER_EMAIL?: string;
+  @Transform(({ value }) => blankToUndefined(value))
+  @IsOptional()
+  @IsString()
+  BREVO_SENDER_NAME?: string;
+  @Transform(({ value }) => blankToUndefined(value) ?? 'http://localhost:3002')
+  @IsUrl({ require_tld: false, protocols: ['http', 'https'] })
+  PUBLIC_BOOKING_BASE_URL = 'http://localhost:3002';
+}
+
+function blankToUndefined(value: unknown) {
+  if (typeof value !== 'string') return value;
+  const trimmed = value.trim();
+  return trimmed === '' ? undefined : trimmed;
 }
 
 export function validateEnvironment(config: Record<string, unknown>) {

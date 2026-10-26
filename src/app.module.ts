@@ -14,6 +14,8 @@ import { SchedulesModule } from './modules/schedules/schedules.module';
 import { AvailabilityModule } from './modules/availability/availability.module';
 import { AppointmentsModule } from './modules/appointments/appointments.module';
 import { CustomersModule } from './modules/customers/customers.module';
+import { PublicBookingModule } from './modules/public-booking/public-booking.module';
+import { MailModule } from './modules/mail/mail.module';
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true, validate: validateEnvironment }),
@@ -29,6 +31,8 @@ import { CustomersModule } from './modules/customers/customers.module';
     AvailabilityModule,
     AppointmentsModule,
     CustomersModule,
+    PublicBookingModule,
+    MailModule,
   ],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
 })

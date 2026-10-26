@@ -52,6 +52,7 @@ model Spa {
   appointments Appointment[]
   customers Customer[]
   serviceCategories ServiceCategory[]
+  bookingRequests BookingRequest[]
   createdAt DateTime   @default(now())
   updatedAt DateTime   @updatedAt
 }
@@ -144,6 +145,7 @@ model SpaService {
   isActive        Boolean  @default(true)
   professionals   ProfessionalService[]
   appointments    Appointment[]
+  bookingRequests BookingRequest[]
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
@@ -206,7 +208,8 @@ model Appointment {
   servicePrice   Decimal           @db.Decimal(10, 2)
   commissionRate Decimal           @db.Decimal(5, 2)
   isWalkIn       Boolean           @default(false)
-  createdById    String            @db.Uuid
+  createdById    String?           @db.Uuid
+  bookingRequest BookingRequest?
   createdAt      DateTime          @default(now())
   updatedAt      DateTime          @updatedAt
 
@@ -243,10 +246,48 @@ model Customer {
   nationalId   String?
   email        String?
   appointments Appointment[]
+  bookingRequests BookingRequest[]
   createdAt    DateTime      @default(now())
   updatedAt    DateTime      @updatedAt
 
   @@unique([id, spaId])
   @@unique([spaId, nationalId])
   @@index([spaId, name])
+}
+
+enum BookingRequestStatus {
+  PENDING
+  CONFIRMED
+  CANCELLED
+  EXPIRED
+}
+
+model BookingRequest {
+  id                String               @id @default(uuid()) @db.Uuid
+  spaId             String               @db.Uuid
+  spa               Spa                  @relation(fields: [spaId], references: [id], onDelete: Restrict)
+  customerId        String               @db.Uuid
+  customer          Customer             @relation(fields: [customerId, spaId], references: [id, spaId], onDelete: Restrict)
+  serviceId         String               @db.Uuid
+  service           SpaService           @relation(fields: [serviceId, spaId], references: [id, spaId], onDelete: Restrict)
+  professionalId    String?              @db.Uuid
+  appointmentId     String?              @unique @db.Uuid
+  appointment       Appointment?         @relation(fields: [appointmentId], references: [id], onDelete: SetNull)
+  token             String               @unique @db.VarChar(64)
+  receiptToken      String?              @unique @db.VarChar(64)
+  status            BookingRequestStatus @default(PENDING)
+  email             String
+  submittedName     String
+  submittedPhone    String
+  nationalId        String
+  startAt           DateTime
+  endAt             DateTime
+  expiresAt         DateTime
+  resendAvailableAt DateTime             @default(now())
+  idempotencyKey    String?
+  createdAt         DateTime             @default(now())
+  updatedAt         DateTime             @updatedAt
+
+  @@index([spaId, status])
+  @@index([customerId])
 }
