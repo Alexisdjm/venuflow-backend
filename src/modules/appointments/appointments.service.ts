@@ -16,6 +16,26 @@ import {
   CreateAppointmentDto,
   UpdateAppointmentDto,
 } from './dto/appointment.dto';
+
+type VisitMember = {
+  id: string;
+  spaId: string;
+  professionalId: string;
+  serviceId: string;
+  customerId: string;
+  customerName: string;
+  serviceCategoryId: string;
+  startAt: Date;
+  endAt: Date;
+  status: string;
+  visitGroupId?: string | null;
+  visitRequestId?: string | null;
+  service: { name: string };
+  professional?: { displayName: string } | null;
+  bookingRequest?: { id: string; email: string; token: string; appointmentId?: string | null } | null;
+  visitRequest?: { id: string; email: string; token: string; appointmentId?: string | null } | null;
+};
+
 @Injectable()
 export class AppointmentsService {
   constructor(
@@ -211,12 +231,40 @@ export class AppointmentsService {
           },
         },
         bookingRequest: { select: { id: true } },
+        visitRequest: { select: { id: true, appointmentId: true } },
       },
       orderBy: { startAt: 'asc' },
     });
-    return appointments.map(({ bookingRequest, ...appointment }) => ({
+    const visitRequestIds = [...new Set(appointments.map((item) => item.visitRequestId).filter((id): id is string => Boolean(id)))];
+    const visitGroupIds = [...new Set(appointments.map((item) => item.visitGroupId).filter((id): id is string => Boolean(id)))];
+    const linked = visitRequestIds.length || visitGroupIds.length
+      ? await this.prisma.appointment.findMany({
+          where: {
+            spaId: u.spaId!,
+            status: 'CONFIRMED',
+            OR: [
+              ...(visitGroupIds.length ? [{ visitGroupId: { in: visitGroupIds } }] : []),
+              ...(visitRequestIds.length ? [{ visitRequestId: { in: visitRequestIds } }] : []),
+            ],
+          },
+          select: { visitGroupId: true, visitRequestId: true },
+        })
+      : [];
+    const requestSize = new Map<string, number>();
+    const groupSize = new Map<string, number>();
+    for (const row of linked) {
+      if (row.visitGroupId) groupSize.set(row.visitGroupId, (groupSize.get(row.visitGroupId) ?? 0) + 1);
+      if (row.visitRequestId) requestSize.set(row.visitRequestId, (requestSize.get(row.visitRequestId) ?? 0) + 1);
+    }
+    return appointments.map(({ bookingRequest, visitRequest, ...appointment }) => ({
       ...appointment,
-      remote: Boolean(bookingRequest),
+      remote: Boolean(bookingRequest || visitRequest),
+      visitSize: appointment.visitGroupId
+        ? groupSize.get(appointment.visitGroupId) ?? 1
+        : appointment.visitRequestId
+          ? requestSize.get(appointment.visitRequestId) ?? 1
+          : 1,
+      visitAnchorId: bookingRequest ? appointment.id : visitRequest?.appointmentId ?? null,
     }));
   }
   async create(u: AuthUser, d: CreateAppointmentDto) {
@@ -396,7 +444,8 @@ export class AppointmentsService {
       where: { id, spaId, professionalId: ownProfessional },
       include: {
         service: true,
-        bookingRequest: { select: { id: true, email: true, token: true } },
+        bookingRequest: { select: { id: true, email: true, token: true, appointmentId: true } },
+        visitRequest: { select: { id: true, email: true, token: true, appointmentId: true } },
       },
     });
     if (!current) throw new NotFoundException('No se encontró la cita');
@@ -404,7 +453,7 @@ export class AppointmentsService {
       throw new ConflictException(
         'No se puede modificar una cita completada o cancelada',
       );
-    if (!d.status && !d.startAt && !d.professionalId)
+    if (!d.status && !d.startAt && !d.professionalId && !d.delayMinutes)
       throw new BadRequestException('Indica qué quieres cambiar');
     if (d.status === 'COMPLETED') {
       if (d.startAt || d.professionalId)
@@ -424,6 +473,21 @@ export class AppointmentsService {
       throw new BadRequestException(
         'No puedes pasar la cita a otra profesional',
       );
+    const members = await this.confirmedVisit(current);
+    if (members.length > 1 && d.status !== 'COMPLETED') {
+      if (d.status === 'CANCELLED') return this.cancelVisit(u, current, members);
+      if (d.delayMinutes || d.startAt || d.professionalId) {
+        if (d.professionalId)
+          throw new BadRequestException('En una cita de varios servicios se mantiene cada profesional. Cambia el horario de toda la cita.');
+        return this.moveVisit(u, current, members, d);
+      }
+    }
+    if (d.delayMinutes) {
+      d = {
+        ...d,
+        startAt: new Date(current.startAt.getTime() + d.delayMinutes * 60_000).toISOString(),
+      };
+    }
     const targetProfessionalId = d.professionalId ?? current.professionalId;
     let startAt: Date | undefined,
       endAt: Date | undefined,
@@ -549,6 +613,319 @@ export class AppointmentsService {
     return value;
   }
 
+  async visitAvailability(u: AuthUser, id: string, date: string) {
+    const ownProfessional = u.role === 'PROFESSIONAL' ? (await this.own(u)).id : undefined;
+    const current = await this.prisma.appointment.findFirst({
+      where: { id, spaId: u.spaId!, professionalId: ownProfessional },
+      include: { service: { select: { name: true } } },
+    });
+    if (!current) throw new NotFoundException('No se encontró la cita');
+    const members = await this.confirmedVisit(current);
+    const spa = await this.prisma.spa.findUniqueOrThrow({
+      where: { id: u.spaId! },
+      select: { timezone: true, openingMinute: true, closingMinute: true, walkInGraceMinutes: true },
+    });
+    const localDate = DateTime.fromISO(date, { zone: spa.timezone }).startOf('day');
+    if (!localDate.isValid) throw new BadRequestException('La fecha no es válida');
+    const ordered = [...members].sort((a, b) => a.startAt.getTime() - b.startAt.getTime());
+    const origin = ordered[0].startAt.getTime();
+    const pieces = ordered.map((member) => ({
+      member,
+      startOffset: member.startAt.getTime() - origin,
+      endOffset: member.endAt.getTime() - origin,
+    }));
+    const professionalIds = [...new Set(pieces.map((piece) => piece.member.professionalId))];
+    const schedules = await this.prisma.professionalSchedule.findMany({
+      where: {
+        spaId: u.spaId!,
+        professionalId: { in: professionalIds },
+        dayOfWeek: localDate.weekday % 7,
+        isActive: true,
+      },
+    });
+    const busy = await this.prisma.appointment.findMany({
+      where: {
+        spaId: u.spaId!,
+        id: { notIn: ordered.map((member) => member.id) },
+        professionalId: { in: professionalIds },
+        status: { not: 'CANCELLED' },
+        startAt: { lt: localDate.plus({ days: 1 }).toUTC().toJSDate() },
+        endAt: { gt: localDate.toUTC().toJSDate() },
+      },
+      select: { professionalId: true, startAt: true, endAt: true },
+    });
+    const total = pieces[pieces.length - 1].endOffset;
+    const now = DateTime.utc();
+    const starts = Array.from(
+      { length: Math.floor((spa.closingMinute - spa.openingMinute - total / 60_000) / 30) + 1 },
+      (_, index) => localDate.plus({ minutes: spa.openingMinute + index * 30 }),
+    );
+    const data = starts.flatMap((start) => {
+      if (!start.isValid || start.minute % 30 !== 0) return [];
+      if (start.toUTC() < now && now.diff(start.toUTC(), 'minutes').minutes > spa.walkInGraceMinutes) return [];
+      const placed: { professionalId: string; start: Date; end: Date }[] = [];
+      for (const piece of pieces) {
+        const segmentStart = start.plus({ milliseconds: piece.startOffset });
+        const segmentEnd = start.plus({ milliseconds: piece.endOffset });
+        const localStart = segmentStart.setZone(spa.timezone);
+        const localEnd = segmentEnd.setZone(spa.timezone);
+        const startMinute = localStart.hour * 60 + localStart.minute;
+        const endMinute = localEnd.hour * 60 + localEnd.minute;
+        const fits = localStart.hasSame(localDate, 'day')
+          && localEnd.hasSame(localDate, 'day')
+          && startMinute >= spa.openingMinute
+          && endMinute <= spa.closingMinute
+          && schedules.some((schedule) =>
+            schedule.professionalId === piece.member.professionalId
+            && schedule.startMinute <= startMinute
+            && schedule.endMinute >= endMinute,
+          )
+          && !busy.some((appointment) =>
+            appointment.professionalId === piece.member.professionalId
+            && appointment.startAt < segmentEnd.toJSDate()
+            && appointment.endAt > segmentStart.toJSDate(),
+          )
+          && !placed.some((segment) =>
+            segment.professionalId === piece.member.professionalId
+            && segment.start < segmentEnd.toJSDate()
+            && segment.end > segmentStart.toJSDate(),
+          );
+        if (!fits) return [];
+        placed.push({
+          professionalId: piece.member.professionalId,
+          start: segmentStart.toJSDate(),
+          end: segmentEnd.toJSDate(),
+        });
+      }
+      const end = start.plus({ milliseconds: total });
+      return [{
+        professionalId: ordered[0].professionalId,
+        serviceId: ordered[0].serviceId,
+        start: start.toUTC().toISO(),
+        end: end.toUTC().toISO(),
+        localStart: start.toISO(),
+        localEnd: end.toISO(),
+      }];
+    });
+    return { date, timezone: spa.timezone, durationMinutes: Math.round(total / 60_000), data };
+  }
+
+  private async confirmedVisit(current: VisitMember): Promise<VisitMember[]> {
+    const key = current.visitGroupId
+      ? { visitGroupId: current.visitGroupId }
+      : current.visitRequestId
+        ? { visitRequestId: current.visitRequestId }
+        : null;
+    if (!key) return [current];
+    const rows = await this.prisma.appointment.findMany({
+      where: { spaId: current.spaId, status: 'CONFIRMED', ...key },
+      include: {
+        service: true,
+        professional: { select: { displayName: true } },
+        bookingRequest: { select: { id: true, email: true, token: true, appointmentId: true } },
+        visitRequest: { select: { id: true, email: true, token: true, appointmentId: true } },
+      },
+      orderBy: { startAt: 'asc' },
+    });
+    return rows.length ? rows : [current];
+  }
+
+  private async cancelVisit(u: AuthUser, current: VisitMember, members: VisitMember[]) {
+    const ids = members.map((member) => member.id);
+    const requestId = members.find((member) => member.visitRequest)?.visitRequest?.id
+      ?? members.find((member) => member.bookingRequest)?.bookingRequest?.id;
+    await this.prisma.$transaction(async (tx) => {
+      await tx.appointment.updateMany({
+        where: { spaId: current.spaId, id: { in: ids }, status: 'CONFIRMED' },
+        data: { status: 'CANCELLED' },
+      });
+      if (!requestId) return;
+      const key = current.visitGroupId
+        ? { visitGroupId: current.visitGroupId }
+        : { visitRequestId: current.visitRequestId ?? requestId };
+      const remaining = await tx.appointment.count({
+        where: { spaId: current.spaId, ...key, status: { not: 'CANCELLED' } },
+      });
+      if (remaining === 0) {
+        await tx.bookingRequest.update({
+          where: { id: requestId },
+          data: { status: 'CANCELLED' },
+        });
+      }
+    });
+    await this.audit.record({
+      spaId: current.spaId,
+      actorUserId: u.sub,
+      action: 'APPOINTMENT_UPDATED',
+      entityType: 'Appointment',
+      entityId: current.id,
+      metadata: { status: 'CANCELLED', visit: ids },
+    });
+    await this.notifyVisit(members, members[0].startAt, members[0].startAt, true);
+    return { ...current, status: 'CANCELLED' as const };
+  }
+
+  private async moveVisit(u: AuthUser, current: VisitMember, members: VisitMember[], change: UpdateAppointmentDto) {
+    const ordered = [...members].sort((a, b) => a.startAt.getTime() - b.startAt.getTime());
+    const delta = change.delayMinutes
+      ? change.delayMinutes * 60_000
+      : new Date(change.startAt ?? '').getTime() - ordered[0].startAt.getTime();
+    if (!Number.isFinite(delta)) throw new BadRequestException('El horario no es válido');
+    const spa = await this.prisma.spa.findUniqueOrThrow({
+      where: { id: current.spaId },
+      select: { timezone: true, openingMinute: true, closingMinute: true, walkInGraceMinutes: true },
+    });
+    const planned = ordered.map((member) => ({
+      member,
+      start: new Date(member.startAt.getTime() + delta),
+      end: new Date(member.endAt.getTime() + delta),
+      duration: Math.round((member.endAt.getTime() - member.startAt.getTime()) / 60_000),
+    }));
+    const ids = planned.map((item) => item.member.id);
+    try {
+      for (const item of planned) {
+        const slot = this.validateSlot(spa, item.start, item.duration);
+        const schedule = await this.prisma.professionalSchedule.findFirst({
+          where: {
+            spaId: current.spaId,
+            professionalId: item.member.professionalId,
+            dayOfWeek: slot.local.weekday % 7,
+            isActive: true,
+            startMinute: { lte: slot.startMinute },
+            endMinute: { gte: slot.endMinute },
+          },
+        });
+        if (!schedule) throw new ConflictException('El nuevo horario está fuera de la jornada');
+        const conflict = await this.prisma.appointment.findFirst({
+          where: {
+            id: { notIn: ids },
+            spaId: current.spaId,
+            professionalId: item.member.professionalId,
+            status: { not: 'CANCELLED' },
+            startAt: { lt: item.end },
+            endAt: { gt: item.start },
+          },
+        });
+        if (conflict) throw new ConflictException('La profesional no está disponible en el nuevo horario');
+        const overlapsVisit = planned.some((other) =>
+          other.member.id !== item.member.id
+          && other.member.professionalId === item.member.professionalId
+          && other.start < item.end
+          && other.end > item.start,
+        );
+        if (overlapsVisit) throw new ConflictException('La profesional no está disponible en el nuevo horario');
+        const appointmentDate = new Date(`${slot.local.toISODate()}T00:00:00.000Z`);
+        const duplicateCategory = await this.prisma.appointment.findFirst({
+          where: {
+            id: { notIn: ids },
+            spaId: current.spaId,
+            customerId: item.member.customerId,
+            appointmentDate,
+            serviceCategoryId: item.member.serviceCategoryId,
+            status: { not: 'CANCELLED' },
+          },
+          select: { id: true },
+        });
+        if (duplicateCategory) throw this.categoryConflict();
+      }
+    } catch (error) {
+      if (error instanceof ConflictException && error.message.includes('categoría')) throw error;
+      if (change.delayMinutes) throw this.delayRefusal();
+      throw new ConflictException('Ese horario no está disponible para todos los servicios.');
+    }
+    const requestId = ordered.find((member) => member.visitRequest)?.visitRequest?.id
+      ?? ordered.find((member) => member.bookingRequest)?.bookingRequest?.id;
+    const orderedWrites = delta >= 0 ? [...planned].reverse() : planned;
+    try {
+      await this.prisma.$transaction(async (tx) => {
+        for (const item of orderedWrites) {
+          const local = DateTime.fromJSDate(item.start, { zone: 'utc' }).setZone(spa.timezone);
+          await tx.appointment.update({
+            where: { id_spaId: { id: item.member.id, spaId: current.spaId } },
+            data: {
+              startAt: item.start,
+              endAt: item.end,
+              appointmentDate: new Date(`${local.toISODate()}T00:00:00.000Z`),
+            },
+          });
+        }
+        if (!requestId) return;
+        const request = await tx.bookingRequest.findUnique({ where: { id: requestId }, select: { segments: true } });
+        await tx.bookingRequest.update({
+          where: { id: requestId },
+          data: {
+            startAt: planned[0].start,
+            endAt: planned[planned.length - 1].end,
+            ...(request?.segments ? { segments: this.shiftSegments(request.segments, delta) } : {}),
+          },
+        });
+      });
+    } catch (error) {
+      if (this.isCustomerCategoryConflict(error) ) throw this.categoryConflict();
+      if (this.isConcurrentBookingConflict(error)) {
+        throw change.delayMinutes ? this.delayRefusal() : new ConflictException('Ese horario no está disponible para todos los servicios.');
+      }
+      throw error;
+    }
+    await this.audit.record({
+      spaId: current.spaId,
+      actorUserId: u.sub,
+      action: 'APPOINTMENT_RESCHEDULED',
+      entityType: 'Appointment',
+      entityId: current.id,
+      metadata: { visit: ids, startAt: planned[0].start.toISOString(), delayMinutes: change.delayMinutes ?? null },
+    });
+    await this.notifyVisit(ordered, ordered[0].startAt, planned[0].start, false);
+    return { ...current, startAt: planned.find((item) => item.member.id === current.id)?.start ?? current.startAt };
+  }
+
+  private async notifyVisit(members: VisitMember[], previousStart: Date, nextStart: Date, cancelled: boolean) {
+    const request = members.find((member) => member.bookingRequest)?.bookingRequest
+      ?? members.find((member) => member.visitRequest)?.visitRequest
+      ?? null;
+    if (!this.mail || !request?.email) return;
+    const anchor = members.find((member) => member.bookingRequest)
+      ?? members.find((member) => member.id === member.visitRequest?.appointmentId)
+      ?? members[0];
+    const spa = await this.prisma.spa.findUnique({
+      where: { id: members[0].spaId },
+      select: { name: true, timezone: true },
+    });
+    const timezone = spa?.timezone ?? 'UTC';
+    const message = {
+      to: request.email,
+      customerName: members[0].customerName,
+      spaName: spa?.name ?? 'VenueFlow',
+      serviceName: members.map((member) => member.service.name).join(' · '),
+      professionalName: [...new Set(members.map((member) => member.professional?.displayName).filter(Boolean))].join(' · ') || 'Profesional',
+      when: this.formatWhen(cancelled ? previousStart : nextStart, timezone),
+      previousWhen: this.formatWhen(previousStart, timezone),
+      verificationUrl: this.verificationUrl(request.token),
+      reference: `Código ${bookingCode(anchor.id)}.`,
+    };
+    if (cancelled) {
+      await this.mail.sendBookingCancellation(message);
+      return;
+    }
+    await this.mail.sendBookingUpdate(message);
+  }
+
+  private shiftSegments(value: Prisma.JsonValue, delta: number): Prisma.InputJsonValue {
+    if (!Array.isArray(value)) return [];
+    return value.map((item) => {
+      if (!item || typeof item !== 'object' || Array.isArray(item)) return item as Prisma.InputJsonValue;
+      const row = { ...(item as Record<string, Prisma.InputJsonValue>) };
+      for (const key of ['start', 'end'] as const) {
+        if (typeof row[key] === 'string') row[key] = new Date(new Date(row[key]).getTime() + delta).toISOString();
+      }
+      return row;
+    });
+  }
+
+  private delayRefusal() {
+    return new ConflictException('No se puede atrasar 30 minutos: un servicio choca con otro horario o la cita superaría el cierre. Hay que reprogramarla.');
+  }
+
   private async notifyRemoteChange(
     current: {
       id: string;
@@ -557,12 +934,13 @@ export class AppointmentsService {
       startAt: Date;
       professionalId: string;
       service: { name: string };
-      bookingRequest: { id: string; email: string; token: string } | null;
+      bookingRequest: { id: string; email: string; token: string; appointmentId?: string | null } | null;
+      visitRequest?: { id: string; email: string; token: string; appointmentId?: string | null } | null;
     },
     updated: { professionalId: string; startAt: Date },
     change: UpdateAppointmentDto,
   ) {
-    const request = current.bookingRequest;
+    const request = current.bookingRequest ?? current.visitRequest ?? null;
     if (!this.mail || !request?.email) return;
     if (change.status === 'COMPLETED') return;
     const scheduleChanged = Boolean(change.startAt || change.professionalId);
@@ -585,13 +963,24 @@ export class AppointmentsService {
       when: this.formatWhen(updated.startAt, timezone),
       previousWhen: this.formatWhen(current.startAt, timezone),
       verificationUrl: this.verificationUrl(request.token),
-      reference: `Código ${bookingCode(current.id)}.`,
+      reference: `Código ${bookingCode(current.bookingRequest ? current.id : current.visitRequest?.appointmentId ?? current.id)}.`,
     };
     if (change.status === 'CANCELLED') {
-      await this.prisma.bookingRequest.update({
-        where: { id: request.id },
-        data: { status: 'CANCELLED' },
-      });
+      const remaining = current.visitRequest
+        ? await this.prisma.appointment.count({
+            where: {
+              visitRequestId: current.visitRequest.id,
+              id: { not: current.id },
+              status: { not: 'CANCELLED' },
+            },
+          })
+        : 0;
+      if (remaining === 0) {
+        await this.prisma.bookingRequest.update({
+          where: { id: request.id },
+          data: { status: 'CANCELLED' },
+        });
+      }
       await this.mail.sendBookingCancellation(message);
       return;
     }

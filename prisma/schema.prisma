@@ -209,7 +209,10 @@ model Appointment {
   commissionRate Decimal           @db.Decimal(5, 2)
   isWalkIn       Boolean           @default(false)
   createdById    String?           @db.Uuid
-  bookingRequest BookingRequest?
+  bookingRequest BookingRequest?   @relation("PrimaryBooking")
+  visitRequestId String?           @db.Uuid
+  visitRequest   BookingRequest?   @relation("VisitBookings", fields: [visitRequestId], references: [id], onDelete: SetNull)
+  visitGroupId   String?           @db.Uuid
   createdAt      DateTime          @default(now())
   updatedAt      DateTime          @updatedAt
 
@@ -217,6 +220,8 @@ model Appointment {
   @@index([spaId, startAt])
   @@index([professionalId, startAt])
   @@index([customerId, startAt])
+  @@index([visitRequestId])
+  @@index([visitGroupId])
 }
 
 model ServiceCategory {
@@ -272,7 +277,9 @@ model BookingRequest {
   service           SpaService           @relation(fields: [serviceId, spaId], references: [id, spaId], onDelete: Restrict)
   professionalId    String?              @db.Uuid
   appointmentId     String?              @unique @db.Uuid
-  appointment       Appointment?         @relation(fields: [appointmentId], references: [id], onDelete: SetNull)
+  appointment       Appointment?         @relation("PrimaryBooking", fields: [appointmentId], references: [id], onDelete: SetNull)
+  visitAppointments Appointment[]        @relation("VisitBookings")
+  segments          Json?
   token             String               @unique @db.VarChar(64)
   receiptToken      String?              @unique @db.VarChar(64)
   status            BookingRequestStatus @default(PENDING)

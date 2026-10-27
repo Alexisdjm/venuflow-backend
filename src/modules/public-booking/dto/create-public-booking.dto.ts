@@ -3,6 +3,7 @@ import {
   ArrayMaxSize,
   ArrayMinSize,
   IsArray,
+  IsBoolean,
   IsEmail,
   IsISO8601,
   IsOptional,
@@ -14,6 +15,7 @@ import {
   ValidateIf,
   ValidateNested,
 } from 'class-validator';
+import { PublicSequenceItemDto } from './public-sequence.dto';
 
 export class PublicCustomerDto {
   @IsString({ message: 'Escribe tu nombre completo.' })
@@ -39,11 +41,21 @@ export class CreatePublicBookingDto {
 
   @IsArray()
   @ArrayMinSize(1, { message: 'Selecciona un servicio.' })
-  @ArrayMaxSize(1, {
-    message: 'La reserva en línea confirma un servicio a la vez.',
-  })
+  @ArrayMaxSize(5, { message: 'Puedes reservar hasta 5 servicios.' })
   @IsUUID('4', { each: true })
   serviceIds!: string[];
+
+  @IsOptional()
+  @IsBoolean()
+  sameProfessional?: boolean;
+
+  @ValidateIf((dto: CreatePublicBookingDto) => dto.serviceIds.length > 1)
+  @IsArray()
+  @ArrayMinSize(2, { message: 'Elige al menos dos servicios.' })
+  @ArrayMaxSize(5, { message: 'Puedes reservar hasta 5 servicios.' })
+  @ValidateNested({ each: true })
+  @Type(() => PublicSequenceItemDto)
+  items?: PublicSequenceItemDto[];
 
   @IsOptional()
   @ValidateIf((_, value) => value !== undefined && value !== 'any')

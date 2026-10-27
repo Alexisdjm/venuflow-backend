@@ -15,6 +15,7 @@ import { Prisma } from '../../generated/prisma/client';
 import { AuditService } from '../audit/audit.service';
 import { MailService } from '../mail/mail.service';
 import { CreatePublicBookingDto } from './dto/create-public-booking.dto';
+import { PublicBookingService, type PublicSequenceSegment } from './public-booking.service';
 
 const REQUEST_MINUTES = 15;
 const RESEND_SECONDS = 60;
@@ -35,11 +36,13 @@ export class PublicBookingRequestsService {
     private readonly mail: MailService,
     private readonly config: ConfigService,
     private readonly audit: AuditService,
+    private readonly catalog: PublicBookingService,
   ) {}
 
   async create(dto: CreatePublicBookingDto) {
     const spa = await this.prisma.spa.findUnique({ where: { slug: dto.spaSlug } });
     if (!spa || spa.status !== 'ACTIVE') throw new NotFoundException('Spa no encontrado');
+    if (dto.serviceIds.length > 1) return this.createSequence(spa, dto);
     const service = await this.prisma.spaService.findUnique({
       where: { id_spaId: { id: dto.serviceIds[0], spaId: spa.id } },
     });
@@ -135,6 +138,8 @@ export class PublicBookingRequestsService {
       return this.receipt(existing, existing.receiptToken);
     }
     await this.assertPending(existing);
+    const segments = readSegments(existing.segments);
+    if (segments.length > 1) return this.confirmSequence(existing, segments, idempotencyKey);
     const slot = this.slot(existing.spa, existing.startAt.toISOString(), existing.service.durationMinutes ?? 0);
     const chosen = await this.firstAvailable(
       existing.spaId,
@@ -223,7 +228,7 @@ export class PublicBookingRequestsService {
 
   async confirmation(receiptToken: string) {
     const request = await this.byReceipt(receiptToken);
-    if (request.status === 'CANCELLED' || request.appointment?.status === 'CANCELLED') {
+    if (request.status === 'CANCELLED' || (readSegments(request.segments).length < 2 && request.appointment?.status === 'CANCELLED')) {
       throw new NotFoundException('La reserva fue cancelada.');
     }
     return this.receipt(request, receiptToken);
@@ -236,8 +241,10 @@ export class PublicBookingRequestsService {
     }
     if (!request.appointment) throw new NotFoundException('Comprobante no disponible.');
     await this.prisma.$transaction([
-      this.prisma.appointment.update({
-        where: { id: request.appointment.id },
+      this.prisma.appointment.updateMany({
+        where: {
+          OR: [{ id: request.appointment.id }, { visitRequestId: request.id }],
+        },
         data: { status: 'CANCELLED' },
       }),
       this.prisma.bookingRequest.update({
@@ -258,6 +265,146 @@ export class PublicBookingRequestsService {
       metadata: { source: 'public-booking' },
     });
     return { status: 'CANCELLED' as const };
+  }
+
+  private async createSequence(
+    spa: { id: string; slug: string; timezone: string },
+    dto: CreatePublicBookingDto,
+  ) {
+    if (!dto.items || dto.items.length !== dto.serviceIds.length || dto.items.some((item, index) => item.serviceId !== dto.serviceIds[index])) {
+      throw new BadRequestException('Indica el orden y la profesional de cada servicio.');
+    }
+    const plans = await this.catalog.planSequence(spa.slug, {
+      date: dto.start.slice(0, 10),
+      start: dto.start,
+      sameProfessional: Boolean(dto.sameProfessional),
+      items: dto.items,
+    });
+    const plan = plans[0];
+    if (!plan) throw new ConflictException('El horario ya no está disponible.');
+    const email = dto.customer.email.trim().toLowerCase();
+    const nationalId = dto.customer.nationalId;
+    const customer = await this.customerFor(spa.id, {
+      name: dto.customer.name.trim(),
+      nationalId,
+      phone: dto.customer.phone.trim(),
+      email,
+    });
+    for (const segment of plan.segments) {
+      const local = DateTime.fromISO(segment.start, { setZone: true }).setZone(spa.timezone);
+      const appointmentDate = new Date(`${local.toISODate()}T00:00:00.000Z`);
+      if (await this.categoryTaken(spa.id, customer.id, appointmentDate, segment.categoryId)) {
+        throw new ConflictException('Ya existe una reserva de una de estas categorías para ese día.');
+      }
+    }
+    const sameProfessional = new Set(plan.segments.map((segment) => segment.professionalId)).size === 1;
+    const token = randomBytes(32).toString('base64url');
+    const now = new Date();
+    const request = await this.prisma.bookingRequest.create({
+      data: {
+        spaId: spa.id,
+        customerId: customer.id,
+        serviceId: plan.segments[0].serviceId,
+        professionalId: sameProfessional ? plan.segments[0].professionalId : null,
+        token,
+        email,
+        submittedName: dto.customer.name.trim(),
+        submittedPhone: dto.customer.phone.trim(),
+        nationalId,
+        startAt: new Date(plan.start),
+        endAt: new Date(plan.end),
+        expiresAt: new Date(now.getTime() + REQUEST_MINUTES * 60_000),
+        resendAvailableAt: new Date(now.getTime() + RESEND_SECONDS * 1000),
+        segments: plan.segments,
+      },
+      include: requestInclude,
+    });
+    try {
+      await this.mail.sendBookingVerification(await this.mailFor(request, token));
+    } catch (error) {
+      await this.prisma.bookingRequest.delete({ where: { id: request.id } });
+      throw error;
+    }
+    return { requestId: request.id, expiresAt: request.expiresAt.toISOString() };
+  }
+
+  private async confirmSequence(
+    existing: BookingRecord,
+    segments: PublicSequenceSegment[],
+    idempotencyKey: string,
+  ) {
+    for (const segment of segments) {
+      const slot = this.slot(existing.spa, segment.start, segment.durationMinutes);
+      const chosen = await this.firstAvailable(existing.spaId, segment.serviceId, slot, segment.professionalId);
+      if (!chosen || chosen.id !== segment.professionalId) {
+        throw new ConflictException('El horario ya no está disponible.');
+      }
+      const appointmentDate = new Date(`${slot.local.toISODate()}T00:00:00.000Z`);
+      if (await this.categoryTaken(existing.spaId, existing.customerId, appointmentDate, segment.categoryId)) {
+        throw new ConflictException('Ya existe una reserva de una de estas categorías para ese día.');
+      }
+    }
+    const receiptToken = randomBytes(32).toString('base64url');
+    try {
+      const saved = await this.prisma.$transaction(async (tx) => {
+        const current = await tx.bookingRequest.findUnique({ where: { id: existing.id } });
+        if (!current || current.status !== 'PENDING') {
+          throw new ConflictException('Esta solicitud ya no se puede confirmar.');
+        }
+        let firstId = '';
+        for (const segment of segments) {
+          const local = DateTime.fromISO(segment.start, { setZone: true }).setZone(existing.spa.timezone);
+          const appointment = await tx.appointment.create({
+            data: {
+              spaId: existing.spaId,
+              professionalId: segment.professionalId,
+              serviceId: segment.serviceId,
+              customerId: existing.customerId,
+              customerName: existing.customer.name,
+              customerPhone: existing.customer.phone,
+              customerNationalId: existing.customer.nationalId,
+              customerEmail: existing.email,
+              startAt: new Date(segment.start),
+              endAt: new Date(segment.end),
+              appointmentDate: new Date(`${local.toISODate()}T00:00:00.000Z`),
+              serviceCategoryId: segment.categoryId,
+              servicePrice: new Prisma.Decimal(segment.price),
+              commissionRate: new Prisma.Decimal(segment.commissionRate),
+              isWalkIn: false,
+              createdById: null,
+              visitRequestId: existing.id,
+              visitGroupId: existing.id,
+            },
+          });
+          if (!firstId) firstId = appointment.id;
+        }
+        const sharedProfessional = new Set(segments.map((segment) => segment.professionalId)).size === 1
+          ? segments[0].professionalId
+          : null;
+        return tx.bookingRequest.update({
+          where: { id: existing.id },
+          data: {
+            status: 'CONFIRMED',
+            professionalId: sharedProfessional,
+            appointmentId: firstId,
+            receiptToken,
+            idempotencyKey,
+          },
+          include: requestInclude,
+        });
+      });
+      await this.audit.record({
+        spaId: saved.spaId,
+        action: 'APPOINTMENT_CREATED',
+        entityType: 'Appointment',
+        entityId: saved.appointmentId,
+        metadata: { source: 'public-booking', segments: segments.length },
+      });
+      return this.receipt(saved, receiptToken);
+    } catch (error) {
+      if (this.isOverlap(error)) throw new ConflictException('El horario ya no está disponible.');
+      throw error;
+    }
   }
 
   private async customerFor(
@@ -322,7 +469,7 @@ export class PublicBookingRequestsService {
       });
       request.status = 'EXPIRED';
     }
-    if (request.status === 'CANCELLED' || request.appointment?.status === 'CANCELLED') {
+    if (request.status === 'CANCELLED' || (readSegments(request.segments).length < 2 && request.appointment?.status === 'CANCELLED')) {
       return this.summary(request, 'CANCELLED');
     }
     if (request.status === 'CONFIRMED' && request.receiptToken && request.appointment) {
@@ -336,8 +483,8 @@ export class PublicBookingRequestsService {
       requestId: request.id,
       status,
       spaName: request.spa.name,
-      serviceNames: [request.service.name],
-      professionalName: await this.professionalLabel(request.spaId, request.professionalId),
+      serviceNames: segmentNames(request),
+      professionalName: segmentProfessionals(request) || await this.professionalLabel(request.spaId, request.professionalId),
       start: request.startAt.toISOString(),
       expiresAt: request.expiresAt.toISOString(),
     };
@@ -350,13 +497,13 @@ export class PublicBookingRequestsService {
       requestId: request.id,
       status: 'CONFIRMED' as const,
       spaName: request.spa.name,
-      serviceNames: [request.service.name],
-      professionalName: await this.professionalLabel(request.spaId, appointment.professionalId),
+      serviceNames: segmentNames(request),
+      professionalName: segmentProfessionals(request) || await this.professionalLabel(request.spaId, appointment.professionalId),
       start: appointment.startAt.toISOString(),
       expiresAt: request.expiresAt.toISOString(),
       bookingCode: bookingCode(appointment.id),
-      total: Number(request.service.price.toString()),
-      end: appointment.endAt.toISOString(),
+      total: segmentTotal(request) ?? Number(request.service.price.toString()),
+      end: segmentEnd(request) ?? appointment.endAt.toISOString(),
       receiptToken,
     };
   }
@@ -366,8 +513,8 @@ export class PublicBookingRequestsService {
       to: request.email,
       customerName: request.customer.name,
       spaName: request.spa.name,
-      serviceName: request.service.name,
-      professionalName: await this.professionalLabel(request.spaId, request.professionalId),
+      serviceName: segmentNames(request).join(' · '),
+      professionalName: segmentProfessionals(request) || await this.professionalLabel(request.spaId, request.professionalId),
       when: formatWhen(request.startAt, request.spa.timezone),
       expiresAt: formatWhen(request.expiresAt, request.spa.timezone),
       verificationUrl: this.verificationUrl(token),
@@ -482,6 +629,48 @@ export class PublicBookingRequestsService {
       message.includes('exclusion constraint')
     );
   }
+}
+
+function readSegments(value: Prisma.JsonValue | null): PublicSequenceSegment[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((item) => {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) return [];
+    const row = item as Record<string, unknown>;
+    if (typeof row.serviceId !== 'string' || typeof row.professionalId !== 'string' || typeof row.start !== 'string' || typeof row.end !== 'string') return [];
+    return [{
+      serviceId: row.serviceId,
+      serviceName: typeof row.serviceName === 'string' ? row.serviceName : '',
+      categoryId: typeof row.categoryId === 'string' ? row.categoryId : '',
+      professionalId: row.professionalId,
+      professionalName: typeof row.professionalName === 'string' ? row.professionalName : '',
+      commissionRate: typeof row.commissionRate === 'string' ? row.commissionRate : '0',
+      price: typeof row.price === 'string' ? row.price : '0',
+      durationMinutes: typeof row.durationMinutes === 'number' ? row.durationMinutes : 0,
+      start: row.start,
+      end: row.end,
+    }];
+  });
+}
+
+function segmentNames(request: BookingRecord) {
+  const segments = readSegments(request.segments);
+  return segments.length ? segments.map((segment) => segment.serviceName) : [request.service.name];
+}
+
+function segmentProfessionals(request: BookingRecord) {
+  const names = [...new Set(readSegments(request.segments).map((segment) => segment.professionalName).filter(Boolean))];
+  return names.join(' · ');
+}
+
+function segmentTotal(request: BookingRecord) {
+  const segments = readSegments(request.segments);
+  if (!segments.length) return undefined;
+  return segments.reduce((sum, segment) => sum + Number(segment.price), 0);
+}
+
+function segmentEnd(request: BookingRecord) {
+  const segments = readSegments(request.segments);
+  return segments.at(-1)?.end;
 }
 
 function bookingCode(appointmentId: string) {

@@ -53,4 +53,9 @@ export class UpdateAppointmentDto {
     'CONFIRMED' | 'COMPLETED' | 'CANCELLED';
   @IsOptional() @IsISO8601({ strict: true }) startAt?: string;
   @IsOptional() @IsUUID() professionalId?: string;
+  @IsOptional() @IsIn([30]) delayMinutes?: 30;
+}
+
+export class VisitAvailabilityQueryDto {
+  @Matches(/^\d{4}-\d{2}-\d{2}$/) date!: string;
 }

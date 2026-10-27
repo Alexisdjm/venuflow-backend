@@ -1,3 +1,4 @@
+import { randomUUID } from 'crypto';
 import {
   BadRequestException,
   ConflictException,
@@ -273,6 +274,7 @@ export class AppointmentBundlesService {
           });
           customerWasCreated = true;
         }
+        const visitGroupId = plan.segments.length > 1 ? randomUUID() : null;
         const created = [];
         for (let index = 0; index < plan.segments.length; index += 1) {
           const segment = plan.segments[index];
@@ -302,6 +304,7 @@ export class AppointmentBundlesService {
                 commissionRate: segment.commissionRate,
                 isWalkIn: requestedStart < DateTime.utc(),
                 createdById: u.sub,
+                visitGroupId,
               },
             }),
           );

@@ -25,6 +25,7 @@ import {
   CreateAppointmentDto,
   ListAppointmentsDto,
   UpdateAppointmentDto,
+  VisitAvailabilityQueryDto,
 } from './dto/appointment.dto';
 @ApiTags('Appointments')
 @ApiBearerAuth()
@@ -57,6 +58,14 @@ export class AppointmentsController {
     @Body() d: CreateAppointmentBundleDto,
   ) {
     return this.bundles.create(u, d);
+  }
+  @Get(':id/visit-availability')
+  visitAvailability(
+    @CurrentUser() u: AuthUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Query() query: VisitAvailabilityQueryDto,
+  ) {
+    return this.appointments.visitAvailability(u, id, query.date);
   }
   @Patch(':id') update(
     @CurrentUser() u: AuthUser,

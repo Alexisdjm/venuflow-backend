@@ -585,4 +585,50 @@ describe('AppointmentsService', () => {
     expect(mail.sendBookingUpdate).not.toHaveBeenCalled();
     expect(prisma.bookingRequest.update).toHaveBeenCalled();
   });
+
+  it('refuses to delay a multi-service visit when a later service would pass closing', async () => {
+    const start = DateTime.fromISO('2030-01-10T16:00:00.000Z', { setZone: true });
+    const first = {
+      id: 'first-id',
+      spaId: 'spa-id',
+      status: 'CONFIRMED',
+      startAt: start.toJSDate(),
+      endAt: start.plus({ hours: 1 }).toJSDate(),
+      professionalId: 'pro-a',
+      serviceId: 'service-a',
+      customerId: 'customer-id',
+      customerName: 'Ana',
+      serviceCategoryId: 'cat-a',
+      visitRequestId: 'visit-id',
+      service: { ...fixedService, name: 'Manos' },
+      professional: { displayName: 'Ana' },
+      bookingRequest: null,
+      visitRequest: { id: 'visit-id', email: 'ana@example.com', token: 'token', appointmentId: 'first-id' },
+    };
+    const secondStart = start.plus({ hours: 1 });
+    const second = {
+      ...first,
+      id: 'second-id',
+      professionalId: 'pro-b',
+      serviceCategoryId: 'cat-b',
+      startAt: secondStart.toJSDate(),
+      endAt: secondStart.plus({ hours: 1 }).toJSDate(),
+      service: { ...fixedService, name: 'Corte' },
+      professional: { displayName: 'Andrea' },
+    };
+    const prisma = {
+      appointment: {
+        findFirst: jest.fn().mockResolvedValueOnce(first).mockResolvedValue(null),
+        findMany: jest.fn().mockResolvedValue([first, second]),
+      },
+      professionalSchedule: { findFirst: jest.fn().mockResolvedValue({ id: 'schedule' }) },
+      spa: { findUniqueOrThrow: jest.fn().mockResolvedValue(spa) },
+    };
+    const service = new AppointmentsService(prisma as never, audit as never);
+
+    await expect(
+      service.update(admin, first.id, { delayMinutes: 30 }),
+    ).rejects.toThrow(/reprogramarla/);
+    expect(prisma.appointment.findMany).toHaveBeenCalled();
+  });
 });

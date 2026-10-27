@@ -1,6 +1,7 @@
-import { Controller, Get, Param, Query } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { PublicAvailabilityQueryDto } from './dto/public-availability.dto';
+import { PublicSequenceAvailabilityDto } from './dto/public-sequence.dto';
 import { PublicBookingService } from './public-booking.service';
 
 @ApiTags('Public booking')
@@ -21,6 +22,24 @@ export class PublicBookingController {
   @Get(':slug/availability')
   availability(@Param('slug') slug: string, @Query() query: PublicAvailabilityQueryDto) {
     return this.catalog.availability(slug, query);
+  }
+
+  @Post(':slug/sequence-availability')
+  async sequence(@Param('slug') slug: string, @Body() dto: PublicSequenceAvailabilityDto) {
+    const plans = await this.catalog.planSequence(slug, dto);
+    return plans.map((plan) => ({
+      start: plan.start,
+      end: plan.end,
+      professionalIds: [...new Set(plan.segments.map((segment) => segment.professionalId))],
+      segments: plan.segments.map((segment) => ({
+        serviceId: segment.serviceId,
+        serviceName: segment.serviceName,
+        professionalId: segment.professionalId,
+        professionalName: segment.professionalName,
+        start: segment.start,
+        end: segment.end,
+      })),
+    }));
   }
 
   @Get(':slug')
