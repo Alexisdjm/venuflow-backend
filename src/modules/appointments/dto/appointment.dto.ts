@@ -54,6 +54,7 @@ export class UpdateAppointmentDto {
   @IsOptional() @IsISO8601({ strict: true }) startAt?: string;
   @IsOptional() @IsUUID() professionalId?: string;
   @IsOptional() @IsIn([30]) delayMinutes?: 30;
+  @IsOptional() @IsIn(['segment']) scope?: 'segment';
 }
 
 export class VisitAvailabilityQueryDto {

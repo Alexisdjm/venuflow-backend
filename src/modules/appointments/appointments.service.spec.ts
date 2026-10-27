@@ -586,6 +586,53 @@ describe('AppointmentsService', () => {
     expect(prisma.bookingRequest.update).toHaveBeenCalled();
   });
 
+  it('cancels one service of a visit without cancelling the others', async () => {
+    const mail = {
+      sendBookingCancellation: jest.fn().mockResolvedValue(undefined),
+      sendBookingUpdate: jest.fn().mockResolvedValue(undefined),
+    };
+    const current = {
+      id: 'second-id',
+      spaId: 'spa-id',
+      status: 'CONFIRMED',
+      customerName: 'Ana',
+      startAt: new Date('2030-01-10T15:00:00.000Z'),
+      endAt: new Date('2030-01-10T16:00:00.000Z'),
+      professionalId: 'pro-b',
+      visitRequestId: 'visit-id',
+      service: { ...fixedService, name: 'Corte' },
+      bookingRequest: null,
+      visitRequest: { id: 'visit-id', email: 'ana@example.com', token: 'token', appointmentId: 'first-id' },
+    };
+    const prisma = {
+      appointment: {
+        findFirst: jest.fn().mockResolvedValue(current),
+        findMany: jest.fn().mockResolvedValue([{ ...current, id: 'first-id' }, current]),
+        update: jest.fn().mockResolvedValue({ ...current, status: 'CANCELLED' }),
+        count: jest.fn().mockResolvedValue(1),
+      },
+      bookingRequest: { update: jest.fn().mockResolvedValue({}) },
+      spa: { findUnique: jest.fn().mockResolvedValue({ name: 'EmiNails', timezone: 'America/Caracas' }) },
+      professional: { findFirst: jest.fn().mockResolvedValue({ displayName: 'Andrea' }) },
+    };
+    const service = new AppointmentsService(
+      prisma as never,
+      audit as never,
+      mail as never,
+      { get: () => 'http://localhost:3002' } as never,
+    );
+
+    await service.update(admin, current.id, { status: 'CANCELLED', scope: 'segment' });
+
+    expect(prisma.appointment.update).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id_spaId: { id: 'second-id', spaId: 'spa-id' } } }),
+    );
+    expect(prisma.bookingRequest.update).not.toHaveBeenCalled();
+    expect(mail.sendBookingCancellation).toHaveBeenCalledWith(
+      expect.objectContaining({ serviceName: 'Corte', reference: 'Código VF-FIRSTID.' }),
+    );
+  });
+
   it('refuses to delay a multi-service visit when a later service would pass closing', async () => {
     const start = DateTime.fromISO('2030-01-10T16:00:00.000Z', { setZone: true });
     const first = {

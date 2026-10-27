@@ -474,7 +474,10 @@ export class AppointmentsService {
         'No puedes pasar la cita a otra profesional',
       );
     const members = await this.confirmedVisit(current);
-    if (members.length > 1 && d.status !== 'COMPLETED') {
+    if (d.scope === 'segment' && (d.delayMinutes || d.startAt || d.professionalId)) {
+      throw new BadRequestException('Para atrasar o reprogramar, hazlo desde la cita completa.');
+    }
+    if (members.length > 1 && d.status !== 'COMPLETED' && d.scope !== 'segment') {
       if (d.status === 'CANCELLED') return this.cancelVisit(u, current, members);
       if (d.delayMinutes || d.startAt || d.professionalId) {
         if (d.professionalId)
