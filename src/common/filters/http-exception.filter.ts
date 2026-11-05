@@ -6,9 +6,11 @@ import {
   HttpStatus,
 } from '@nestjs/common';
 import { Request, Response } from 'express';
+import { databaseConflict } from '../database-conflict';
 @Catch()
 export class HttpExceptionFilter implements ExceptionFilter {
   catch(error: unknown, host: ArgumentsHost) {
+    error = databaseConflict(error) ?? error;
     const ctx = host.switchToHttp();
     const response = ctx.getResponse<Response>();
     const request = ctx.getRequest<Request>();
@@ -24,7 +26,13 @@ export class HttpExceptionFilter implements ExceptionFilter {
     response.status(status).json({
       statusCode: status,
       ...normalized,
-      path: request.url,
+      path: request.url
+        .split('?')[0]
+        .replace(
+          /(\/booking-(?:verifications|confirmations)\/)[^/]+/g,
+          '$1[redacted]',
+        )
+        .replace(/(\/booking-requests\/)[^/]+(?=\/resend)/g, '$1[redacted]'),
       timestamp: new Date().toISOString(),
     });
   }

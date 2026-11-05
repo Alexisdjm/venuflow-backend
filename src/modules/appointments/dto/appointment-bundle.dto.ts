@@ -7,6 +7,7 @@ import {
   IsDecimal,
   IsDivisibleBy,
   IsEmail,
+  IsIn,
   IsInt,
   IsISO8601,
   IsOptional,
@@ -68,5 +69,7 @@ export class CreateAppointmentBundleDto {
   @MaxLength(40)
   customerPhone?: string;
   @IsOptional() @IsEmail() customerEmail?: string;
+  @IsIn(['PAGO_MOVIL', 'PUNTO_DE_VENTA', 'ZELLE', 'BINANCE'])
+  paymentMethod!: 'PAGO_MOVIL' | 'PUNTO_DE_VENTA' | 'ZELLE' | 'BINANCE';
   @IsOptional() @IsString() @MaxLength(1000) notes?: string;
 }

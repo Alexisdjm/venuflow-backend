@@ -90,20 +90,26 @@ export class MailService {
     if (!apiKey || !senderEmail) {
       throw new ServiceUnavailableException('El envío de correo no está configurado');
     }
-    const response = await fetch('https://api.brevo.com/v3/smtp/email', {
-      method: 'POST',
-      headers: {
-        accept: 'application/json',
-        'api-key': apiKey,
-        'content-type': 'application/json',
-      },
-      body: JSON.stringify({
-        sender: { email: senderEmail, name: senderName },
-        to: [{ email: to, name }],
-        subject,
-        htmlContent,
-      }),
-    });
+    let response: Response;
+    try {
+      response = await fetch('https://api.brevo.com/v3/smtp/email', {
+        method: 'POST',
+        headers: {
+          accept: 'application/json',
+          'api-key': apiKey,
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({
+          sender: { email: senderEmail, name: senderName },
+          to: [{ email: to, name }],
+          subject,
+          htmlContent,
+        }),
+        signal: AbortSignal.timeout(10_000),
+      });
+    } catch {
+      throw new BadGatewayException(failure);
+    }
     if (!response.ok) throw new BadGatewayException(failure);
   }
 }

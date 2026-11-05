@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common';
 import { DateTime } from 'luxon';
 import { Prisma } from '../../generated/prisma/client';
+import { SchedulingService } from '../scheduling/scheduling.service';
 import { AppointmentsService } from './appointments.service';
 
 describe('AppointmentsService', () => {
@@ -39,10 +40,12 @@ describe('AppointmentsService', () => {
     const prisma = {
       spaService: { findUnique: jest.fn().mockResolvedValue(null) },
     };
-    const service = new AppointmentsService(prisma as never, audit as never);
+    const service = new AppointmentsService(prisma as never, audit as never, new SchedulingService(prisma as never));
 
     await expect(
-      service.create(admin, { serviceId: 'missing', startAt: future()! }),
+      service.create(admin, { serviceId: 'missing', startAt: future()!,
+        paymentMethod: 'PAGO_MOVIL',
+      }),
     ).rejects.toBeInstanceOf(NotFoundException);
   });
 
@@ -57,10 +60,12 @@ describe('AppointmentsService', () => {
       },
       spa: { findUniqueOrThrow: jest.fn().mockResolvedValue(spa) },
     };
-    const service = new AppointmentsService(prisma as never, audit as never);
+    const service = new AppointmentsService(prisma as never, audit as never, new SchedulingService(prisma as never));
 
     await expect(
-      service.create(admin, { serviceId: 'service-id', startAt: future()! }),
+      service.create(admin, { serviceId: 'service-id', startAt: future()!,
+        paymentMethod: 'PAGO_MOVIL',
+      }),
     ).rejects.toBeInstanceOf(BadRequestException);
   });
 
@@ -69,7 +74,7 @@ describe('AppointmentsService', () => {
       spaService: { findUnique: jest.fn().mockResolvedValue(fixedService) },
       spa: { findUniqueOrThrow: jest.fn().mockResolvedValue(spa) },
     };
-    const service = new AppointmentsService(prisma as never, audit as never);
+    const service = new AppointmentsService(prisma as never, audit as never, new SchedulingService(prisma as never));
     const startAt = DateTime.utc()
       .plus({ days: 2 })
       .startOf('day')
@@ -77,7 +82,9 @@ describe('AppointmentsService', () => {
       .toISO()!;
 
     await expect(
-      service.create(admin, { serviceId: 'service-id', startAt }),
+      service.create(admin, { serviceId: 'service-id', startAt,
+        paymentMethod: 'PAGO_MOVIL',
+      }),
     ).rejects.toBeInstanceOf(ConflictException);
   });
 
@@ -110,13 +117,14 @@ describe('AppointmentsService', () => {
         create: jest.fn().mockResolvedValue(appointment),
       },
     };
-    const service = new AppointmentsService(prisma as never, audit as never);
+    const service = new AppointmentsService(prisma as never, audit as never, new SchedulingService(prisma as never));
 
     await expect(
       service.create(admin, {
         serviceId: 'service-id',
         customerId: 'customer-id',
         startAt: '2026-10-24T17:00:00.000Z',
+        paymentMethod: 'PAGO_MOVIL',
       }),
     ).resolves.toEqual({ ...appointment, customerStatus: 'recurring' });
     expect(prisma.appointment.create).toHaveBeenCalledWith(
@@ -133,12 +141,13 @@ describe('AppointmentsService', () => {
       spaService: { findUnique: jest.fn().mockResolvedValue(fixedService) },
       spa: { findUniqueOrThrow: jest.fn().mockResolvedValue(spa) },
     };
-    const service = new AppointmentsService(prisma as never, audit as never);
+    const service = new AppointmentsService(prisma as never, audit as never, new SchedulingService(prisma as never));
 
     await expect(
       service.create(admin, {
         serviceId: 'service-id',
         startAt: '2026-10-24T17:00:00.000Z',
+        paymentMethod: 'PAGO_MOVIL',
       }),
     ).rejects.toBeInstanceOf(BadRequestException);
     jest.useRealTimers();
@@ -173,7 +182,7 @@ describe('AppointmentsService', () => {
         create: jest.fn().mockResolvedValue(appointment),
       },
     };
-    const service = new AppointmentsService(prisma as never, audit as never);
+    const service = new AppointmentsService(prisma as never, audit as never, new SchedulingService(prisma as never));
 
     await expect(
       service.create(admin, {
@@ -182,6 +191,7 @@ describe('AppointmentsService', () => {
         customerName: 'Ana Pérez',
         customerNationalId: '12345678',
         customerPhone: '04120000000',
+        paymentMethod: 'PAGO_MOVIL',
       }),
     ).resolves.toEqual({ ...appointment, customerStatus: 'new' });
     expect(prisma.appointment.create).toHaveBeenCalledWith(
@@ -226,14 +236,15 @@ describe('AppointmentsService', () => {
         create: jest.fn().mockResolvedValue(appointment),
       },
     };
-    const service = new AppointmentsService(prisma as never, audit as never);
+    const service = new AppointmentsService(prisma as never, audit as never, new SchedulingService(prisma as never));
 
     await service.create(admin, {
       serviceId: 'service-id',
       professionalId: 'pro-fixed',
       customerId: 'customer-id',
       startAt: future()!,
-    });
+        paymentMethod: 'PAGO_MOVIL',
+      });
 
     expect(prisma.professionalService.findMany).not.toHaveBeenCalled();
     expect(prisma.professionalService.findFirst).toHaveBeenCalledWith(
@@ -263,13 +274,14 @@ describe('AppointmentsService', () => {
       },
       professionalService: { findMany: jest.fn() },
     };
-    const service = new AppointmentsService(prisma as never, audit as never);
+    const service = new AppointmentsService(prisma as never, audit as never, new SchedulingService(prisma as never));
 
     await expect(
       service.create(admin, {
         serviceId: 'service-id',
         customerId: 'customer-id',
         startAt: future()!,
+        paymentMethod: 'PAGO_MOVIL',
       }),
     ).rejects.toThrow(
       'Esta clienta ya tiene una cita de esta categoría en la fecha seleccionada',
@@ -316,7 +328,7 @@ describe('AppointmentsService', () => {
         create: jest.fn().mockResolvedValue(appointment),
       },
     };
-    const service = new AppointmentsService(prisma as never, audit as never);
+    const service = new AppointmentsService(prisma as never, audit as never, new SchedulingService(prisma as never));
 
     await expect(
       service.create(admin, {
@@ -326,6 +338,7 @@ describe('AppointmentsService', () => {
         customerNationalId: '12345678',
         customerPhone: '04149999999',
         customerEmail: 'otro@example.com',
+        paymentMethod: 'PAGO_MOVIL',
       }),
     ).resolves.toEqual({ ...appointment, customerStatus: 'recurring' });
     expect(prisma.customer.create).not.toHaveBeenCalled();
@@ -354,7 +367,7 @@ describe('AppointmentsService', () => {
       },
       professionalSchedule: { findFirst: jest.fn().mockResolvedValue(null) },
     };
-    const service = new AppointmentsService(prisma as never, audit as never);
+    const service = new AppointmentsService(prisma as never, audit as never, new SchedulingService(prisma as never));
 
     await expect(
       service.create(admin, {
@@ -363,6 +376,7 @@ describe('AppointmentsService', () => {
         customerName: 'Ana Pérez',
         customerNationalId: '12345678',
         customerPhone: '04120000000',
+        paymentMethod: 'PAGO_MOVIL',
       }),
     ).rejects.toBeInstanceOf(ConflictException);
   });
@@ -377,7 +391,7 @@ describe('AppointmentsService', () => {
         }),
       },
     };
-    const service = new AppointmentsService(prisma as never, audit as never);
+    const service = new AppointmentsService(prisma as never, audit as never, new SchedulingService(prisma as never));
 
     await expect(
       service.update(admin, 'appointment-id', { status: 'CANCELLED' }),
@@ -396,7 +410,7 @@ describe('AppointmentsService', () => {
         }),
       },
     };
-    const service = new AppointmentsService(prisma as never, audit as never);
+    const service = new AppointmentsService(prisma as never, audit as never, new SchedulingService(prisma as never));
 
     await expect(
       service.update(admin, 'appointment-id', { status: 'COMPLETED' }),
@@ -421,7 +435,7 @@ describe('AppointmentsService', () => {
           .mockResolvedValue({ ...current, status: 'COMPLETED' }),
       },
     };
-    const service = new AppointmentsService(prisma as never, audit as never);
+    const service = new AppointmentsService(prisma as never, audit as never, new SchedulingService(prisma as never));
 
     await expect(
       service.update(admin, current.id, { status: 'COMPLETED' }),
@@ -441,7 +455,7 @@ describe('AppointmentsService', () => {
         }),
       },
     };
-    const service = new AppointmentsService(prisma as never, audit as never);
+    const service = new AppointmentsService(prisma as never, audit as never, new SchedulingService(prisma as never));
 
     await expect(
       service.update(admin, 'appointment-id', {}),
@@ -481,7 +495,7 @@ describe('AppointmentsService', () => {
         findFirst: jest.fn().mockResolvedValue({ id: 'schedule-id' }),
       },
     };
-    const service = new AppointmentsService(prisma as never, audit as never);
+    const service = new AppointmentsService(prisma as never, audit as never, new SchedulingService(prisma as never));
 
     await expect(
       service.update(admin, current.id, { startAt: nextStart }),
@@ -514,7 +528,7 @@ describe('AppointmentsService', () => {
         }),
       },
     };
-    const service = new AppointmentsService(prisma as never, audit as never);
+    const service = new AppointmentsService(prisma as never, audit as never, new SchedulingService(prisma as never));
 
     await expect(
       service.update(professional, 'appointment-id', {
@@ -530,7 +544,7 @@ describe('AppointmentsService', () => {
       },
       appointment: { findMany: jest.fn().mockResolvedValue([]) },
     };
-    const service = new AppointmentsService(prisma as never, audit as never);
+    const service = new AppointmentsService(prisma as never, audit as never, new SchedulingService(prisma as never));
 
     await service.list({ ...admin, role: 'PROFESSIONAL' });
     expect(prisma.appointment.findMany).toHaveBeenCalledWith(
@@ -573,6 +587,7 @@ describe('AppointmentsService', () => {
     const service = new AppointmentsService(
       prisma as never,
       audit as never,
+      new SchedulingService(prisma as never),
       mail as never,
       { get: () => 'http://localhost:3002' } as never,
     );
@@ -618,6 +633,7 @@ describe('AppointmentsService', () => {
     const service = new AppointmentsService(
       prisma as never,
       audit as never,
+      new SchedulingService(prisma as never),
       mail as never,
       { get: () => 'http://localhost:3002' } as never,
     );
@@ -625,7 +641,7 @@ describe('AppointmentsService', () => {
     await service.update(admin, current.id, { status: 'CANCELLED', scope: 'segment' });
 
     expect(prisma.appointment.update).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { id_spaId: { id: 'second-id', spaId: 'spa-id' } } }),
+      expect.objectContaining({ where: { id_spaId: { id: 'second-id', spaId: 'spa-id' }, status: 'CONFIRMED' } }),
     );
     expect(prisma.bookingRequest.update).not.toHaveBeenCalled();
     expect(mail.sendBookingCancellation).toHaveBeenCalledWith(
@@ -671,7 +687,7 @@ describe('AppointmentsService', () => {
       professionalSchedule: { findFirst: jest.fn().mockResolvedValue({ id: 'schedule' }) },
       spa: { findUniqueOrThrow: jest.fn().mockResolvedValue(spa) },
     };
-    const service = new AppointmentsService(prisma as never, audit as never);
+    const service = new AppointmentsService(prisma as never, audit as never, new SchedulingService(prisma as never));
 
     await expect(
       service.update(admin, first.id, { delayMinutes: 30 }),

@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { Prisma } from '../../generated/prisma/client';
 import { PrismaService } from '../../database/prisma/prisma.service';
 import { PaginationDto } from '../../common/dto/pagination.dto';
@@ -14,9 +14,17 @@ export interface AuditEvent {
 
 @Injectable()
 export class AuditService {
+  private readonly logger = new Logger(AuditService.name);
   constructor(private readonly prisma: PrismaService) {}
-  record(event: AuditEvent) {
-    return this.prisma.auditLog.create({ data: event });
+  async record(event: AuditEvent) {
+    try {
+      return await this.prisma.auditLog.create({ data: event });
+    } catch {
+      this.logger.error(
+        `Audit log failed for ${event.action} ${event.entityType}`,
+      );
+      return null;
+    }
   }
   async list(spaId: string | undefined, query: PaginationDto) {
     const where = spaId === undefined ? {} : { spaId };

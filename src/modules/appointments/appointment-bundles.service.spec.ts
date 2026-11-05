@@ -1,6 +1,7 @@
 import { ConflictException } from '@nestjs/common';
 import { Prisma } from '../../generated/prisma/client';
 import { AppointmentBundlesService } from './appointment-bundles.service';
+import { SchedulingService } from '../scheduling/scheduling.service';
 
 describe('AppointmentBundlesService', () => {
   const admin = {
@@ -72,7 +73,7 @@ describe('AppointmentBundlesService', () => {
       },
       appointment: { findMany: jest.fn().mockResolvedValue([]) },
     };
-    const bundles = new AppointmentBundlesService(prisma as never);
+    const bundles = new AppointmentBundlesService(prisma as never, new SchedulingService(prisma as never));
 
     const result = await bundles.availability(admin, {
       date: '2099-10-25',
@@ -107,7 +108,7 @@ describe('AppointmentBundlesService', () => {
           .mockResolvedValueOnce(service('two', 'same-category', 60)),
       },
     };
-    const bundles = new AppointmentBundlesService(prisma as never);
+    const bundles = new AppointmentBundlesService(prisma as never, new SchedulingService(prisma as never));
 
     await expect(
       bundles.availability(admin, {

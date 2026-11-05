@@ -9,6 +9,7 @@ import { spanishValidationException } from './common/validation/spanish-validati
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
   const config = app.get(ConfigService);
+  if (config.get('TRUST_PROXY') === true) app.set('trust proxy', 1);
   app.setGlobalPrefix('api/v1');
   app.use(helmet());
   app.enableCors({

@@ -33,6 +33,12 @@ enum ServicePriceType {
   FIXED
   VARIABLE
 }
+enum PaymentMethod {
+  PAGO_MOVIL
+  PUNTO_DE_VENTA
+  ZELLE
+  BINANCE
+}
 
 model Spa {
   id        String     @id @default(uuid()) @db.Uuid
@@ -86,6 +92,7 @@ model Professional {
   services       ProfessionalService[]
   schedules      ProfessionalSchedule[]
   appointments   Appointment[]
+  bookingRequests BookingRequest[] @relation("RequestedProfessional")
   displayName    String
   commissionRate Decimal  @db.Decimal(5, 2)
   isActive       Boolean  @default(true)
@@ -199,6 +206,7 @@ model Appointment {
   customerNationalId String?
   customerEmail  String?
   notes          String?
+  paymentMethod  PaymentMethod?
   startAt        DateTime
   endAt          DateTime
   appointmentDate DateTime          @db.Date
@@ -211,7 +219,7 @@ model Appointment {
   createdById    String?           @db.Uuid
   bookingRequest BookingRequest?   @relation("PrimaryBooking")
   visitRequestId String?           @db.Uuid
-  visitRequest   BookingRequest?   @relation("VisitBookings", fields: [visitRequestId], references: [id], onDelete: SetNull)
+  visitRequest   BookingRequest?   @relation("VisitBookings", fields: [visitRequestId, spaId], references: [id, spaId], onDelete: SetNull)
   visitGroupId   String?           @db.Uuid
   createdAt      DateTime          @default(now())
   updatedAt      DateTime          @updatedAt
@@ -271,16 +279,18 @@ model BookingRequest {
   id                String               @id @default(uuid()) @db.Uuid
   spaId             String               @db.Uuid
   spa               Spa                  @relation(fields: [spaId], references: [id], onDelete: Restrict)
-  customerId        String               @db.Uuid
-  customer          Customer             @relation(fields: [customerId, spaId], references: [id, spaId], onDelete: Restrict)
+  customerId        String?              @db.Uuid
+  customer          Customer?            @relation(fields: [customerId, spaId], references: [id, spaId], onDelete: Restrict)
   serviceId         String               @db.Uuid
   service           SpaService           @relation(fields: [serviceId, spaId], references: [id, spaId], onDelete: Restrict)
   professionalId    String?              @db.Uuid
+  professional      Professional?        @relation("RequestedProfessional", fields: [professionalId, spaId], references: [id, spaId], onDelete: Restrict)
   appointmentId     String?              @unique @db.Uuid
-  appointment       Appointment?         @relation("PrimaryBooking", fields: [appointmentId], references: [id], onDelete: SetNull)
+  appointment       Appointment?         @relation("PrimaryBooking", fields: [appointmentId, spaId], references: [id, spaId], onDelete: SetNull)
   visitAppointments Appointment[]        @relation("VisitBookings")
   segments          Json?
   token             String               @unique @db.VarChar(64)
+  tokenVersion      Int                  @default(0)
   receiptToken      String?              @unique @db.VarChar(64)
   status            BookingRequestStatus @default(PENDING)
   email             String
@@ -295,6 +305,8 @@ model BookingRequest {
   createdAt         DateTime             @default(now())
   updatedAt         DateTime             @updatedAt
 
+  @@unique([id, spaId])
+  @@unique([appointmentId, spaId])
   @@index([spaId, status])
   @@index([customerId])
 }

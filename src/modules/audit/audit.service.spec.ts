@@ -38,4 +38,18 @@ describe('AuditService', () => {
       meta: { page: 2, limit: 10, total: 1 },
     });
   });
+
+  it('does not fail the caller when the audit write fails', async () => {
+    const prisma = {
+      auditLog: { create: jest.fn().mockRejectedValue(new Error('db down')) },
+    };
+    const service = new AuditService(prisma as never);
+    await expect(
+      service.record({
+        action: 'APPOINTMENT_CREATED',
+        entityType: 'Appointment',
+        metadata: { token: 'secret' },
+      }),
+    ).resolves.toBeNull();
+  });
 });

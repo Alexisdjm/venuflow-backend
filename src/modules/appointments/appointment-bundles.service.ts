@@ -10,6 +10,13 @@ import type { AuthUser } from '../../common/auth.types';
 import { PrismaService } from '../../database/prisma/prisma.service';
 import { Prisma } from '../../generated/prisma/client';
 import {
+  pastBeyondGrace,
+  professionalBusy,
+  SchedulingService,
+  sequenceStaysOpen,
+  shiftCovers,
+} from '../scheduling/scheduling.service';
+import {
   AppointmentBundleItemDto,
   BundleAvailabilityDto,
   CreateAppointmentBundleDto,
@@ -26,7 +33,10 @@ type ResolvedItem = {
 
 @Injectable()
 export class AppointmentBundlesService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly scheduling: SchedulingService,
+  ) {}
 
   private service(spaId: string, id: string) {
     return this.prisma.spaService.findUnique({
@@ -123,16 +133,11 @@ export class AppointmentBundlesService {
         },
       },
     });
-    const appointments = await this.prisma.appointment.findMany({
-      where: {
-        spaId: u.spaId!,
-        status: { not: 'CANCELLED' },
-        startAt: { lt: localDate.plus({ days: 1 }).toUTC().toJSDate() },
-        endAt: { gt: localDate.toUTC().toJSDate() },
-      },
-      select: { professionalId: true, startAt: true, endAt: true },
+    const appointments = await this.scheduling.busyBetween({
+      spaId: u.spaId!,
+      from: localDate.toUTC().toJSDate(),
+      until: localDate.plus({ days: 1 }).toUTC().toJSDate(),
     });
-    const now = DateTime.now().setZone(spa.timezone);
     const total = items.reduce((sum, item) => sum + item.durationMinutes, 0);
     const starts = onlyStart
       ? [onlyStart.setZone(spa.timezone)]
@@ -150,24 +155,17 @@ export class AppointmentBundlesService {
             }),
         );
     return starts.flatMap((start) => {
-      const startMinute = start.hour * 60 + start.minute;
-      const sequenceEnd = start.plus({ minutes: total });
-      const sequenceEndMinute = sequenceEnd.hour * 60 + sequenceEnd.minute;
       if (
-        !start.hasSame(localDate, 'day') ||
-        start.minute % 30 !== 0 ||
-        start.second !== 0 ||
-        start.millisecond !== 0 ||
-        startMinute < spa.openingMinute ||
-        !sequenceEnd.hasSame(start, 'day') ||
-        sequenceEndMinute > spa.closingMinute
+        !sequenceStaysOpen({
+          start,
+          localDate,
+          totalMinutes: total,
+          openingMinute: spa.openingMinute,
+          closingMinute: spa.closingMinute,
+        })
       )
         return [];
-      if (
-        start < now &&
-        now.diff(start, 'minutes').minutes > spa.walkInGraceMinutes
-      )
-        return [];
+      if (pastBeyondGrace(start, spa.walkInGraceMinutes)) return [];
       let cursor = start;
       const segments = [];
       for (const item of items) {
@@ -179,16 +177,14 @@ export class AppointmentBundlesService {
           (candidate) =>
             candidate.serviceId === item.service.id &&
             (!requestedId || candidate.professionalId === requestedId) &&
-            candidate.professional.schedules.some(
-              (schedule) =>
-                schedule.startMinute <= segmentStartMinute &&
-                schedule.endMinute >= endMinute,
+            candidate.professional.schedules.some((schedule) =>
+              shiftCovers(schedule, segmentStartMinute, endMinute),
             ) &&
-            !appointments.some(
-              (appointment) =>
-                appointment.professionalId === candidate.professionalId &&
-                appointment.startAt < end.toUTC().toJSDate() &&
-                appointment.endAt > cursor.toUTC().toJSDate(),
+            !professionalBusy(
+              appointments,
+              candidate.professionalId,
+              cursor.toUTC().toJSDate(),
+              end.toUTC().toJSDate(),
             ),
         );
         if (!assignment) return [];
@@ -294,6 +290,7 @@ export class AppointmentBundlesService {
                 customerNationalId: customer.nationalId,
                 customerEmail: customer.email,
                 notes: dto.notes,
+                paymentMethod: dto.paymentMethod,
                 startAt: new Date(segment.start!),
                 endAt: new Date(segment.end!),
                 appointmentDate: new Date(

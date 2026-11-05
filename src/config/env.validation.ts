@@ -21,6 +21,11 @@ class EnvironmentVariables {
   @IsUrl({ require_tld: false, protocols: ['postgresql'] })
   DATABASE_URL!: string;
   @IsString() @MinLength(32) JWT_ACCESS_SECRET!: string;
+  @Transform(({ value }) => blankToUndefined(value))
+  @IsOptional()
+  @IsString()
+  @MinLength(32)
+  PUBLIC_BOOKING_TOKEN_SECRET?: string;
   @IsString() JWT_ACCESS_EXPIRES_IN = '15m';
   @Type(() => Number)
   @IsInt()
@@ -29,6 +34,10 @@ class EnvironmentVariables {
   @Transform(({ value }) => value === true || value === 'true')
   @IsBoolean()
   SWAGGER_ENABLED = true;
+  /** One trusted reverse-proxy hop. Leave false until that proxy overwrites X-Forwarded-For. */
+  @Transform(({ value }) => value === true || value === 'true' || value === '1')
+  @IsBoolean()
+  TRUST_PROXY = false;
   @IsString() CORS_ORIGINS = 'http://localhost:3001';
   @Transform(({ value }) => blankToUndefined(value))
   @IsOptional()

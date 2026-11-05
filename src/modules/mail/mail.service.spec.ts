@@ -1,4 +1,4 @@
-import { ServiceUnavailableException } from '@nestjs/common';
+import { BadGatewayException, ServiceUnavailableException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { MailService } from './mail.service';
 
@@ -80,6 +80,18 @@ describe('MailService', () => {
     expect(body.htmlContent).toContain('Tu cita cambió');
     expect(body.htmlContent).toContain('VF-ABC12345');
     expect(body.htmlContent).toContain('https://reservas.example/booking/verify?token=abc');
+  });
+
+  it('limits Brevo to one attempt and a 10 second timeout', async () => {
+    const fetchMock = jest
+      .spyOn(global, 'fetch')
+      .mockRejectedValue(new Error('timed out'));
+    const service = new MailService(config());
+    await expect(service.sendBookingVerification(message)).rejects.toBeInstanceOf(
+      BadGatewayException,
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0][1]?.signal).toBeInstanceOf(AbortSignal);
   });
 
   it('refuses to send when Brevo is not configured', async () => {

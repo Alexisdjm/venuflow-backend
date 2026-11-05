@@ -166,7 +166,7 @@ export class SpasService {
           error instanceof Prisma.PrismaClientKnownRequestError &&
           error.code === 'P2002'
         )
-          throw new ConflictException('Ese correo ya está registrado');
+          throw new ConflictException('El spa ya tiene administradora o ese correo está registrado');
         throw error;
       });
     await this.audit.record({

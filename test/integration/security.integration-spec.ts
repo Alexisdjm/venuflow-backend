@@ -261,6 +261,7 @@ describe('PostgreSQL security integration', () => {
         customerName: 'Outside Hours',
         customerNationalId: '12345670',
         customerPhone: '+58000000000',
+      paymentMethod: 'PAGO_MOVIL',
       })
       .expect(409);
   });
@@ -276,6 +277,7 @@ describe('PostgreSQL security integration', () => {
       customerName: 'Validation Client',
       customerNationalId: '12345670',
       customerPhone: '+58000000000',
+    paymentMethod: 'PAGO_MOVIL',
     };
     await request(app.getHttpServer())
       .post('/api/v1/spa/appointments')
@@ -317,6 +319,7 @@ describe('PostgreSQL security integration', () => {
         customerName: 'No Schedule',
         customerNationalId: '12345670',
         customerPhone: '+58000000000',
+      paymentMethod: 'PAGO_MOVIL',
       })
       .expect(409);
     await prisma.professionalSchedule.updateMany({
@@ -338,6 +341,7 @@ describe('PostgreSQL security integration', () => {
       customerName: 'Concurrent Client',
       customerNationalId: '12345670',
       customerPhone: '+58000000000',
+    paymentMethod: 'PAGO_MOVIL',
     };
     const responses = await Promise.all([
       request(app.getHttpServer())
@@ -375,6 +379,7 @@ describe('PostgreSQL security integration', () => {
         customerName: 'Future Client',
         customerNationalId: '12345671',
         customerPhone: '+58000000001',
+      paymentMethod: 'PAGO_MOVIL',
       })
       .expect(201);
     await request(app.getHttpServer())
@@ -427,6 +432,7 @@ describe('PostgreSQL security integration', () => {
         professionalId: professionalA,
         customerId: customer.id,
         startAt,
+        paymentMethod: 'PAGO_MOVIL',
       })
       .expect(201);
     const search = await request(app.getHttpServer())
@@ -479,6 +485,7 @@ describe('PostgreSQL security integration', () => {
         customerName: 'Category Client',
         customerNationalId: '12345673',
         customerPhone: '+58000000003',
+      paymentMethod: 'PAGO_MOVIL',
       })
       .expect(201);
 
@@ -490,6 +497,7 @@ describe('PostgreSQL security integration', () => {
         professionalId: professionalA,
         customerId: first.body.customerId,
         startAt: day.plus({ hours: 11 }).toISO(),
+        paymentMethod: 'PAGO_MOVIL',
       })
       .expect(409);
 
@@ -501,6 +509,7 @@ describe('PostgreSQL security integration', () => {
         professionalId: professionalA,
         customerId: first.body.customerId,
         startAt: day.plus({ hours: 12 }).toISO(),
+        paymentMethod: 'PAGO_MOVIL',
       })
       .expect(201);
   });
@@ -535,10 +544,12 @@ describe('PostgreSQL security integration', () => {
         customerName: 'Bundle Client',
         customerNationalId: '12345674',
         customerPhone: '+58000000004',
+      paymentMethod: 'PAGO_MOVIL',
       })
       .expect(201);
-    expect(created.body).toHaveLength(2);
-    expect(created.body[1].startAt).toBe(created.body[0].endAt);
+    expect(created.body.appointments).toHaveLength(2);
+    expect(created.body.customerStatus).toBe('new');
+    expect(created.body.appointments[1].startAt).toBe(created.body.appointments[0].endAt);
   });
   it('deletes a customer without completed services and their pending appointments', async () => {
     const customer = await prisma.customer.findFirstOrThrow({
@@ -613,6 +624,7 @@ describe('PostgreSQL security integration', () => {
       customerName: 'Variable Duration',
       customerNationalId: '12345672',
       customerPhone: '+58000000002',
+    paymentMethod: 'PAGO_MOVIL',
     };
     await request(app.getHttpServer())
       .post('/api/v1/spa/appointments')

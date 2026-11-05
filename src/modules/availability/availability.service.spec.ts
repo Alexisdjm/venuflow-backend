@@ -1,4 +1,5 @@
 import { AvailabilityService } from './availability.service';
+import { SchedulingService } from '../scheduling/scheduling.service';
 
 describe('AvailabilityService', () => {
   afterEach(() => jest.useRealTimers());
@@ -29,7 +30,7 @@ describe('AvailabilityService', () => {
       },
       appointment: { findMany: jest.fn().mockResolvedValue([]) },
     };
-    const result = await new AvailabilityService(prisma as never).get('spa', {
+    const result = await new AvailabilityService(prisma as never, new SchedulingService(prisma as never)).get('spa', {
       date: '2099-10-20',
       serviceId: 'service',
       intervalMinutes: 15,
@@ -65,7 +66,7 @@ describe('AvailabilityService', () => {
         professionalService: { findMany: jest.fn().mockResolvedValue([]) },
         appointment: { findMany: jest.fn().mockResolvedValue([]) },
       };
-      await new AvailabilityService(prisma as never).get('spa', {
+      await new AvailabilityService(prisma as never, new SchedulingService(prisma as never)).get('spa', {
         date: '2099-10-20',
         serviceId: 'service',
         intervalMinutes: 30,
@@ -115,7 +116,7 @@ describe('AvailabilityService', () => {
       },
       appointment: { findMany: jest.fn().mockResolvedValue([]) },
     };
-    const service = new AvailabilityService(prisma as never);
+    const service = new AvailabilityService(prisma as never, new SchedulingService(prisma as never));
 
     const result = await service.get('spa', {
       date: '2026-10-24',
