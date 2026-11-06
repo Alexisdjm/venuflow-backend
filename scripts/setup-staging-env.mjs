@@ -3,7 +3,8 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 const target = resolve('.env.staging');
-const placeholder = 'PASTE_SUPABASE_SESSION_POOLER_URI_HERE';
+const placeholder =
+  'postgresql://postgres.PROJECT_REF:YOUR_URL_ENCODED_PASSWORD@aws-0-REGION.pooler.supabase.com:5432/postgres?sslmode=require';
 
 if (existsSync(target)) {
   const current = readFileSync(target, 'utf8');

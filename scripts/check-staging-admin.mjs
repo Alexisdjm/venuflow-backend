@@ -1,8 +1,11 @@
 import { PrismaPg } from '@prisma/adapter-pg';
 import { PrismaClient } from '../dist/generated/prisma/client.js';
+import { prismaPgConfig } from './pg-pool-config.mjs';
+import { describeStaging } from './staging-target.mjs';
 
+const { env } = describeStaging();
 const prisma = new PrismaClient({
-  adapter: new PrismaPg({ connectionString: process.env.DATABASE_URL }),
+  adapter: new PrismaPg(prismaPgConfig(env.DATABASE_URL)),
 });
 
 try {
@@ -10,7 +13,7 @@ try {
     where: { role: 'PLATFORM_ADMIN' },
     select: { email: true, status: true, spaId: true },
   });
-  const configuredEmail = (process.env.PLATFORM_ADMIN_EMAIL ?? '')
+  const configuredEmail = (env.PLATFORM_ADMIN_EMAIL ?? '')
     .trim()
     .toLowerCase();
 

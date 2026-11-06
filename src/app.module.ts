@@ -18,7 +18,11 @@ import { PublicBookingModule } from './modules/public-booking/public-booking.mod
 import { MailModule } from './modules/mail/mail.module';
 @Module({
   imports: [
-    ConfigModule.forRoot({ isGlobal: true, validate: validateEnvironment }),
+    ConfigModule.forRoot({
+      isGlobal: true,
+      validate: validateEnvironment,
+      envFilePath: process.env.VENUEFLOW_ENV_FILE ?? '.env',
+    }),
     ThrottlerModule.forRoot([{ ttl: 60000, limit: 100 }]),
     PrismaModule,
     AuthModule,
