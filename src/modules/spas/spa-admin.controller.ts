@@ -16,7 +16,6 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { PaginationDto } from '../../common/dto/pagination.dto';
-import { PrismaService } from '../../database/prisma/prisma.service';
 import { UsersService } from '../users/users.service';
 import { ProfessionalsService } from '../professionals/professionals.service';
 import { ServicesService } from '../services/services.service';
@@ -35,7 +34,6 @@ import {
 @Roles('SPA_ADMIN')
 export class SpaAdminController {
   constructor(
-    private readonly prisma: PrismaService,
     private readonly users: UsersService,
     private readonly professionals: ProfessionalsService,
     private readonly services: ServicesService,
@@ -48,7 +46,7 @@ export class SpaAdminController {
   @Get()
   @Roles('SPA_ADMIN', 'PROFESSIONAL')
   getSpa(@CurrentUser() u: AuthUser) {
-    return this.prisma.spa.findUniqueOrThrow({ where: { id: this.tenant(u) } });
+    return this.spas.get(this.tenant(u));
   }
   @Patch('settings/operating-hours') updateOperatingHours(
     @CurrentUser() u: AuthUser,

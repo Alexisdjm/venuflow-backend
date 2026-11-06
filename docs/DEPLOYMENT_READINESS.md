@@ -1,8 +1,9 @@
 # Estado para configurar el despliegue
 
-Auditoria del 5 nov 2026. No es una autorizacion para produccion. No se
-desplego nada y no se aplicaron migraciones fuera de la base de pruebas
-`127.0.0.1:5433/venueflow_test`.
+Auditoria del 5 nov 2026, actualizada al cierre del dia. No es una
+autorizacion para produccion. No se desplego nada. Las bases locales
+`127.0.0.1:5432/venueflow` y `127.0.0.1:5433/venueflow_test` tienen las 19
+migraciones. Staging y produccion no se tocaron.
 
 ## Que ya cubre el backend
 
@@ -25,9 +26,9 @@ volvio a ejecutar en esta pasada.
 
 Hay 19 migraciones versionadas, incluidas forma de pago, seguridad publica A e
 integridad B. D no agrega otra. En el destino usar `prisma migrate deploy`.
-No usar `db push`. Antes de apuntar a un entorno real, revisar
-`migrate status`: la base de desarrollo en el puerto 5432 no tiene por que
-estar al dia con la base de pruebas.
+No usar `db push`. En local, el 5 nov 2026, las dos bases ya quedaron al dia.
+En cualquier otro entorno: `migrate status`, copia de seguridad y despues
+`migrate deploy`. La migracion B aborta sola si hay filas cruzadas.
 
 ## Configuracion que falta decidir
 
@@ -57,10 +58,11 @@ Salud: `GET /api/v1/health` no entra al limite de trafico y exige la base.
   correo y spa si sobrevive entre procesos.
 - Entrega durable de correo. Si Brevo falla despues de confirmar, la cita queda
   y el correo puede no salir. No hay cola.
-- Frontends: deben conservar `Idempotency-Key` en reintentos, mostrar
-  `onlineBookable` / `unavailableReason` y el comprobante con `appointments`,
-  `currency`, `timezone` y `partiallyCancelled`. Esos contratos ya salen del API;
-  las interfaces no se actualizaron.
+- URL publica por slug. El formulario ya consume los contratos de reservas,
+  pero `NEXT_PUBLIC_SPA_SLUG` sigue fijo en el build. Faltan DNS comodin,
+  certificado TLS de `*.tryvenueflow.com`, Traefik, lectura del host,
+  enlaces de correo por spa y CORS por patron. Jenkins va despues. El
+  detalle esta en `docs/HANDOFF_AUDIT_2026-11-05.md`, seccion 9.
 - Rotacion de tokens legacy (`tokenVersion` 0) descrita en A/B.
 - Esta auditoria no reviso Jenkins, Traefik ni el proyecto de Supabase. No
   afirma que las vulnerabilidades de infraestructura esten cerradas.

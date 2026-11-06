@@ -29,6 +29,7 @@ const labels: Record<string, string> = {
   price: 'El precio',
   professionalId: 'La profesional',
   serviceId: 'El servicio',
+  slug: 'El identificador',
   startAt: 'El horario',
   startTime: 'La hora de inicio',
   status: 'El estado',
@@ -62,6 +63,8 @@ function phrase(constraint: string, field: string) {
       return `${field} debe usar intervalos de 30 minutos.`;
     case 'isIn':
       return `${field} no es una opción válida.`;
+    case 'publicSpaSlug':
+      return 'Ese identificador no puede usarse como dirección pública.';
     case 'isInt':
     case 'isNumber':
       return `${field} debe ser un número.`;

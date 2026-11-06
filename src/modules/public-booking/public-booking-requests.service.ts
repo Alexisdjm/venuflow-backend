@@ -1,4 +1,5 @@
 import { afterCommit } from '../../common/after-commit';
+import { publicSpaUrl, readBookingUrlConfig } from '../../common/public-booking-url';
 import { databaseConflict } from '../../common/database-conflict';
 import { randomUUID } from 'node:crypto';
 import {
@@ -928,15 +929,17 @@ export class PublicBookingRequestsService {
         (await this.professionalLabel(request.spaId, request.professionalId)),
       when: formatWhen(request.startAt, request.spa.timezone),
       expiresAt: formatWhen(request.expiresAt, request.spa.timezone),
-      verificationUrl: this.verificationUrl(token),
+      verificationUrl: this.verificationUrl(request.spa.slug, token),
     };
   }
 
-  private verificationUrl(token: string) {
-    const base =
-      this.config.get<string>('PUBLIC_BOOKING_BASE_URL') ??
-      'http://localhost:3002';
-    return `${base.replace(/\/$/, '')}/booking/verify?token=${encodeURIComponent(token)}`;
+  private verificationUrl(slug: string, token: string) {
+    const settings = readBookingUrlConfig((key) => this.config.get<string>(key));
+    return publicSpaUrl(
+      settings,
+      slug,
+      `/booking/verify?token=${encodeURIComponent(token)}`,
+    );
   }
 
   private async professionalLabel(

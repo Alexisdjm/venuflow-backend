@@ -59,6 +59,13 @@ describe('SpasService', () => {
     expect(result.meta.total).toBe(6);
   });
 
+  it('rejects a reserved public slug', async () => {
+    const service = new SpasService({} as never, audit as never);
+    await expect(
+      service.create('actor', { name: 'Api', slug: 'api' } as never),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
   it('rejects an unknown spa', async () => {
     const prisma = { spa: { findUnique: jest.fn().mockResolvedValue(null) } };
     const service = new SpasService(prisma as never, audit as never);

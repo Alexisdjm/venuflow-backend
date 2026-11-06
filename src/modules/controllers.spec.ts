@@ -312,7 +312,6 @@ describe('HTTP controllers', () => {
   });
 
   it('delegates all spa admin operations and enforces a tenant', async () => {
-    const prisma = { spa: { findUniqueOrThrow: jest.fn() } };
     const users = { list: jest.fn() };
     const professionals = {
       list: jest.fn(),
@@ -323,9 +322,8 @@ describe('HTTP controllers', () => {
       resetPassword: jest.fn(),
     };
     const services = { listForProfessional: jest.fn() };
-    const spas = { updateOperatingHours: jest.fn() };
+    const spas = { updateOperatingHours: jest.fn(), get: jest.fn() };
     const controller = new SpaAdminController(
-      prisma as never,
       users as never,
       professionals as never,
       services as never,
@@ -348,9 +346,7 @@ describe('HTTP controllers', () => {
     controller.resetPassword(admin, 'pro', { password: 'new-password-123' });
     controller.servicesForProfessional(admin, 'pro');
 
-    expect(prisma.spa.findUniqueOrThrow).toHaveBeenCalledWith({
-      where: { id: 'spa-1' },
-    });
+    expect(spas.get).toHaveBeenCalledWith('spa-1');
     expect(spas.updateOperatingHours).toHaveBeenCalledWith(
       'user-1',
       'spa-1',

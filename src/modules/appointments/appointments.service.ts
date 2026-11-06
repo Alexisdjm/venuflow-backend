@@ -12,6 +12,7 @@ import type { AuthUser } from '../../common/auth.types';
 import { PrismaService } from '../../database/prisma/prisma.service';
 import { Prisma } from '../../generated/prisma/client';
 import { afterCommit } from '../../common/after-commit';
+import { publicSpaUrl, readBookingUrlConfig } from '../../common/public-booking-url';
 import { AuditService } from '../audit/audit.service';
 import { MailService } from '../mail/mail.service';
 import {
@@ -829,8 +830,10 @@ export class AppointmentsService {
       ?? members[0];
     const spa = await this.prisma.spa.findUnique({
       where: { id: members[0].spaId },
-      select: { name: true, timezone: true },
+      select: { name: true, timezone: true, slug: true },
     });
+    const verificationUrl = this.verificationUrl(spa?.slug, request.token, request.id, request.tokenVersion);
+    if (!cancelled && !verificationUrl) return;
     const timezone = spa?.timezone ?? 'UTC';
     const message = {
       to: request.email,
@@ -840,7 +843,7 @@ export class AppointmentsService {
       professionalName: [...new Set(members.map((member) => member.professional?.displayName).filter(Boolean))].join(' · ') || 'Profesional',
       when: this.formatWhen(cancelled ? previousStart : nextStart, timezone),
       previousWhen: this.formatWhen(previousStart, timezone),
-      verificationUrl: this.verificationUrl(request.token, request.id, request.tokenVersion),
+      verificationUrl,
       reference: `Código ${bookingCode(anchor.id)}.`,
     };
     await afterCommit(cancelled ? 'visit-cancel-mail' : 'visit-update-mail', () =>
@@ -887,8 +890,9 @@ export class AppointmentsService {
     if (change.status !== 'CANCELLED' && !scheduleChanged) return;
     const spa = await this.prisma.spa.findUnique({
       where: { id: current.spaId },
-      select: { name: true, timezone: true },
+      select: { name: true, timezone: true, slug: true },
     });
+    const verificationUrl = this.verificationUrl(spa?.slug, request.token, request.id, request.tokenVersion);
     const professional = await this.prisma.professional.findFirst({
       where: { id: updated.professionalId, spaId: current.spaId },
       select: { displayName: true },
@@ -902,7 +906,7 @@ export class AppointmentsService {
       professionalName: professional?.displayName ?? 'Profesional',
       when: this.formatWhen(updated.startAt, timezone),
       previousWhen: this.formatWhen(current.startAt, timezone),
-      verificationUrl: this.verificationUrl(request.token, request.id, request.tokenVersion),
+      verificationUrl,
       reference: `Código ${bookingCode(current.bookingRequest ? current.id : current.visitRequest?.appointmentId ?? current.id)}.`,
     };
     if (change.status === 'CANCELLED') {
@@ -926,20 +930,29 @@ export class AppointmentsService {
       );
       return;
     }
+    if (!verificationUrl) return;
     await afterCommit('remote-update-mail', () =>
       this.mail!.sendBookingUpdate(message),
     );
   }
 
-  private verificationUrl(token: string, id: string, tokenVersion?: number) {
-    const base = this.config?.get<string>('PUBLIC_BOOKING_BASE_URL') ?? 'http://localhost:3002';
-    if (tokenVersion === 1) {
-      const secret = this.config?.get<string>('PUBLIC_BOOKING_TOKEN_SECRET') ??
-        this.config?.getOrThrow<string>('JWT_ACCESS_SECRET');
-      if (!secret) throw new Error('Missing booking token secret');
-      return `${base.replace(/\/$/, '')}/booking/confirmation?token=${encodeURIComponent(bookingToken(secret, id, 'receipt'))}`;
+  private verificationUrl(slug: string | undefined, token: string, id: string, tokenVersion?: number) {
+    if (!slug) return undefined;
+    const path = tokenVersion === 1
+      ? `/booking/confirmation?token=${encodeURIComponent(this.receiptToken(id))}`
+      : `/booking/verify?token=${encodeURIComponent(token)}`;
+    try {
+      return publicSpaUrl(readBookingUrlConfig((key) => this.config?.get<string>(key)), slug, path);
+    } catch {
+      return undefined;
     }
-    return `${base.replace(/\/$/, '')}/booking/verify?token=${encodeURIComponent(token)}`;
+  }
+
+  private receiptToken(id: string) {
+    const secret = this.config?.get<string>('PUBLIC_BOOKING_TOKEN_SECRET') ??
+      this.config?.get<string>('JWT_ACCESS_SECRET');
+    if (!secret) throw new Error('Missing booking token secret');
+    return bookingToken(secret, id, 'receipt');
   }
 
   private formatWhen(value: Date, timezone: string) {

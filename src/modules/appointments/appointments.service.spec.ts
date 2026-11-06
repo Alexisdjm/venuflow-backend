@@ -581,7 +581,7 @@ describe('AppointmentsService', () => {
         }),
       },
       bookingRequest: { update: jest.fn().mockResolvedValue({}) },
-      spa: { findUnique: jest.fn().mockResolvedValue({ name: 'EmiNails', timezone: 'America/Caracas' }) },
+      spa: { findUnique: jest.fn().mockResolvedValue({ name: 'EmiNails', slug: 'emi-nails', timezone: 'America/Caracas' }) },
       professional: { findFirst: jest.fn().mockResolvedValue({ displayName: 'Ana M' }) },
     };
     const service = new AppointmentsService(
@@ -627,7 +627,7 @@ describe('AppointmentsService', () => {
         count: jest.fn().mockResolvedValue(1),
       },
       bookingRequest: { update: jest.fn().mockResolvedValue({}) },
-      spa: { findUnique: jest.fn().mockResolvedValue({ name: 'EmiNails', timezone: 'America/Caracas' }) },
+      spa: { findUnique: jest.fn().mockResolvedValue({ name: 'EmiNails', slug: 'emi-nails', timezone: 'America/Caracas' }) },
       professional: { findFirst: jest.fn().mockResolvedValue({ displayName: 'Andrea' }) },
     };
     const service = new AppointmentsService(

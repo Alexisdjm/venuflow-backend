@@ -20,4 +20,16 @@ describe('spanishValidationMessages', () => {
       'El correo no es un correo válido.',
     ]);
   });
+
+  it('explains a reserved public slug', () => {
+    expect(
+      spanishValidationMessages([
+        {
+          property: 'slug',
+          constraints: { publicSpaSlug: 'reserved' },
+          children: [],
+        },
+      ]),
+    ).toEqual(['Ese identificador no puede usarse como dirección pública.']);
+  });
 });

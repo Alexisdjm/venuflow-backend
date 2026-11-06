@@ -3,8 +3,15 @@ import {
   ConflictException,
   Injectable,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import * as argon2 from 'argon2';
+import {
+  isPublicSpaSlug,
+  publicSpaOrigin,
+  readBookingUrlConfig,
+} from '../../common/public-booking-url';
 import { PrismaService } from '../../database/prisma/prisma.service';
 import { CreateSpaDto, UpdateSpaDto } from './dto/spa.dto';
 import { ProvisionAdminDto } from './dto/provision-admin.dto';
@@ -20,8 +27,10 @@ export class SpasService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    @Optional() private readonly config?: ConfigService,
   ) {}
   async create(actorUserId: string, dto: CreateSpaDto) {
+    this.assertPublicSlug(dto.slug);
     const spa = await this.prisma
       .$transaction(async (tx) => {
         const created = await tx.spa.create({ data: dto });
@@ -50,7 +59,7 @@ export class SpasService {
       entityType: 'Spa',
       entityId: spa.id,
     });
-    return spa;
+    return this.withPublicUrl(spa);
   }
   async list(q: PaginationDto) {
     const skip = (q.page - 1) * q.limit;
@@ -62,14 +71,18 @@ export class SpasService {
       }),
       this.prisma.spa.count(),
     ]);
-    return { data, meta: { page: q.page, limit: q.limit, total } };
+    return {
+      data: data.map((spa) => this.withPublicUrl(spa)),
+      meta: { page: q.page, limit: q.limit, total },
+    };
   }
   async get(id: string) {
     const spa = await this.prisma.spa.findUnique({ where: { id } });
     if (!spa) throw new NotFoundException('No se encontró el spa');
-    return spa;
+    return this.withPublicUrl(spa);
   }
   async update(actorUserId: string, id: string, dto: UpdateSpaDto) {
+    this.assertPublicSlug(dto.slug);
     await this.get(id);
     const spa = await this.prisma.spa.update({ where: { id }, data: dto });
     await this.audit.record({
@@ -80,7 +93,24 @@ export class SpasService {
       entityId: id,
       metadata: { status: dto.status ?? null },
     });
-    return spa;
+    return this.withPublicUrl(spa);
+  }
+  private assertPublicSlug(slug: string | undefined) {
+    if (slug !== undefined && !isPublicSpaSlug(slug)) {
+      throw new BadRequestException(
+        'Ese identificador no puede usarse como dirección pública',
+      );
+    }
+  }
+  private withPublicUrl<T extends { slug: string }>(spa: T) {
+    try {
+      const settings = readBookingUrlConfig((key) =>
+        this.config?.get<string>(key),
+      );
+      return { ...spa, publicUrl: publicSpaOrigin(settings, spa.slug) };
+    } catch {
+      return { ...spa, publicUrl: null };
+    }
   }
   async updateOperatingHours(
     actorUserId: string,

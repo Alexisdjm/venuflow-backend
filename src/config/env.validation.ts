@@ -7,6 +7,7 @@ import {
   IsOptional,
   IsString,
   IsUrl,
+  Matches,
   Min,
   MinLength,
   validateSync,
@@ -54,6 +55,21 @@ class EnvironmentVariables {
   @Transform(({ value }) => blankToUndefined(value) ?? 'http://localhost:3002')
   @IsUrl({ require_tld: false, protocols: ['http', 'https'] })
   PUBLIC_BOOKING_BASE_URL = 'http://localhost:3002';
+  /** Hostname only, for example tryvenueflow.com. Each spa is served at {slug}.{domain}. */
+  @Transform(({ value }) => blankToUndefined(value))
+  @IsOptional()
+  @Matches(
+    /^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)*[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/,
+  )
+  PUBLIC_BOOKING_ROOT_DOMAIN?: string;
+  @Transform(({ value }) => blankToUndefined(value))
+  @IsOptional()
+  @IsIn(['http', 'https'])
+  PUBLIC_BOOKING_PROTOCOL?: string;
+  @Transform(({ value }) => blankToUndefined(value))
+  @IsOptional()
+  @Matches(/^\d{1,5}$/)
+  PUBLIC_BOOKING_PORT?: string;
 }
 
 function blankToUndefined(value: unknown) {
