@@ -689,6 +689,142 @@ describe('Block A public booking security (real PostgreSQL)', () => {
       (await api.confirmation(link.searchParams.get('token')!)).status,
     ).toBe('CONFIRMED');
   });
+  it('runs create, resend, confirmation, receipt and cancellation on two spas without mixing links or records', async () => {
+    const otherSlug = `spa-b-${randomUUID()}`;
+    const other = await db.spa.create({
+      data: {
+        name: 'Spa B',
+        slug: otherSlug,
+        timezone: 'America/Caracas',
+        currency: 'USD',
+      },
+    });
+    ownedSpas.push(other.id);
+    const otherUser = await db.user.create({
+      data: {
+        spaId: other.id,
+        firstName: 'Bea',
+        lastName: 'Pro',
+        email: `${otherSlug}@example.test`,
+        passwordHash: 'not-a-login-fixture',
+        role: 'PROFESSIONAL',
+      },
+    });
+    const otherPro = await db.professional.create({
+      data: {
+        spaId: other.id,
+        userId: otherUser.id,
+        displayName: 'Spa B professional',
+        commissionRate: '20',
+      },
+    });
+    const otherCategory = await db.serviceCategory.create({
+      data: { spaId: other.id, name: 'Spa B', normalizedName: 'spa b' },
+    });
+    const otherService = await db.spaService.create({
+      data: {
+        spaId: other.id,
+        categoryId: otherCategory.id,
+        name: 'Spa B service',
+        durationMinutes: 30,
+        price: '40',
+      },
+    });
+    await db.professionalService.create({
+      data: { spaId: other.id, professionalId: otherPro.id, serviceId: otherService.id },
+    });
+    const local = DateTime.fromISO(start, { setZone: true }).setZone('America/Caracas');
+    await db.professionalSchedule.create({
+      data: {
+        spaId: other.id,
+        professionalId: otherPro.id,
+        dayOfWeek: local.weekday % 7,
+        startMinute: 540,
+        endMinute: 1080,
+      },
+    });
+    const guestB = { ...customer, name: 'Bea B', email: 'bea-b@example.test' };
+    const createdA = await pending({ name: 'Ana A', email: 'ana-a@example.test' });
+    const createdB = await api.create({
+      spaSlug: otherSlug,
+      serviceIds: [otherService.id],
+      professionalId: otherPro.id,
+      start,
+      customer: guestB,
+    });
+    const latestMail = (spaName: string) =>
+      [...mail.sendBookingVerification.mock.calls]
+        .reverse()
+        .find((call) => call[0].spaName === spaName)![0];
+    const mailA = latestMail('Security A');
+    const mailB = latestMail('Spa B');
+    const linkA = new URL(mailA.verificationUrl);
+    const linkB = new URL(mailB.verificationUrl);
+    const tokenA = linkA.searchParams.get('token')!;
+    const tokenB = linkB.searchParams.get('token')!;
+    const idB = createdB.requestId.split('.')[0];
+
+    expect(linkA.hostname).toBe(`${slug}.localhost`);
+    expect(linkB.hostname).toBe(`${otherSlug}.localhost`);
+    expect(linkA.pathname).toBe('/booking/verify');
+    expect(tokenA).not.toBe(tokenB);
+    expect((await api.details(tokenA)).spaName).toBe('Security A');
+    expect((await api.details(tokenA)).serviceNames).toEqual(['Service 0']);
+    expect((await api.details(tokenB)).serviceNames).toEqual(['Spa B service']);
+    await expect(
+      api.resend(`${idB}.${createdA.requestId.slice(createdA.requestId.indexOf('.') + 1)}`),
+    ).rejects.toMatchObject({ status: 404 });
+
+    await db.bookingRequest.updateMany({
+      where: { id: { in: [createdA.row.id, idB] } },
+      data: { resendAvailableAt: new Date(0) },
+    });
+    await api.resend(createdA.requestId);
+    await api.resend(createdB.requestId);
+    expect(new URL(latestMail('Security A').verificationUrl).hostname).toBe(`${slug}.localhost`);
+    expect(new URL(latestMail('Spa B').verificationUrl).searchParams.get('token')).toBe(tokenB);
+
+    const receiptA = await api.confirm(tokenA, randomUUID());
+    const receiptB = await api.confirm(tokenB, randomUUID());
+    expect(receiptA.spaName).toBe('Security A');
+    expect(receiptB.spaName).toBe('Spa B');
+    expect(receiptA.serviceNames).toEqual(['Service 0']);
+    expect(receiptB.serviceNames).toEqual(['Spa B service']);
+    expect(receiptA.receiptToken).not.toBe(receiptB.receiptToken);
+    expect(receiptA.appointments.map((item) => item.serviceName)).toEqual(['Service 0']);
+    expect((await api.confirmation(receiptB.receiptToken)).requestId).toBe(idB);
+
+    expect(await db.customer.findMany({ where: { spaId }, select: { name: true, nationalId: true } })).toEqual([
+      { name: 'Ana A', nationalId: customer.nationalId },
+    ]);
+    expect(await db.customer.findMany({ where: { spaId: other.id }, select: { name: true, nationalId: true } })).toEqual([
+      { name: 'Bea B', nationalId: customer.nationalId },
+    ]);
+
+    const pendingB = await api.create({
+      spaSlug: otherSlug,
+      serviceIds: [otherService.id],
+      professionalId: otherPro.id,
+      start: DateTime.fromISO(start).plus({ hours: 3 }).toUTC().toISO()!,
+      customer: guestB,
+    });
+    const pendingToken = new URL(latestMail('Spa B').verificationUrl).searchParams.get('token')!;
+    await api.cancel(pendingToken);
+    expect((await api.details(pendingToken)).status).toBe('CANCELLED');
+    expect((await api.details(pendingToken)).requestId).toBe(pendingB.requestId.split('.')[0]);
+    expect((await api.confirmation(receiptB.receiptToken)).status).toBe('CONFIRMED');
+
+    await api.cancelConfirmed(receiptA.receiptToken);
+    await expect(api.confirmation(receiptA.receiptToken)).rejects.toMatchObject({ status: 404 });
+    expect((await api.confirmation(receiptB.receiptToken)).spaName).toBe('Spa B');
+
+    await api.cancelConfirmed(receiptB.receiptToken);
+    await expect(api.confirmation(receiptB.receiptToken)).rejects.toMatchObject({ status: 404 });
+    expect(await db.appointment.count({ where: { spaId, status: 'CANCELLED' } })).toBe(1);
+    expect(await db.appointment.count({ where: { spaId: other.id, status: 'CANCELLED' } })).toBe(1);
+    expect(await db.appointment.count({ where: { spaId: other.id, status: 'CONFIRMED' } })).toBe(0);
+  });
+
   describe('Block B transactional integrity', () => {
     it.each(['primary', 'visit', 'professional', 'admins', 'clean'])(
       'migration preflight rejects inconsistent legacy data without editing it: %s',
