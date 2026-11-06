@@ -17,6 +17,7 @@ import { PaginationDto } from '../../common/dto/pagination.dto';
 import { SpasService } from './spas.service';
 import { CreateSpaDto, UpdateSpaDto } from './dto/spa.dto';
 import { ProvisionAdminDto } from './dto/provision-admin.dto';
+import { UpdateAdminDto } from './dto/update-admin.dto';
 import type { AuthUser } from '../../common/auth.types';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 @ApiTags('Platform')
@@ -33,7 +34,7 @@ export class PlatformSpasController {
     return this.spas.list(q);
   }
   @Get(':id') get(@Param('id', ParseUUIDPipe) id: string) {
-    return this.spas.get(id);
+    return this.spas.getForPlatform(id);
   }
   @Patch(':id') update(
     @CurrentUser() u: AuthUser,
@@ -48,5 +49,12 @@ export class PlatformSpasController {
     @Body() d: ProvisionAdminDto,
   ) {
     return this.spas.provisionAdmin(u.sub, id, d);
+  }
+  @Patch(':id/admin') updateAdmin(
+    @CurrentUser() u: AuthUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() d: UpdateAdminDto,
+  ) {
+    return this.spas.updateAdmin(u.sub, id, d);
   }
 }

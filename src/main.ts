@@ -1,4 +1,4 @@
-import { ValidationPipe } from '@nestjs/common';
+import { Logger, ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
 import type { NestExpressApplication } from '@nestjs/platform-express';
@@ -44,6 +44,14 @@ async function bootstrap() {
     );
     SwaggerModule.setup('docs', app, document);
   }
-  await app.listen(config.get<number>('PORT', 3000), '0.0.0.0');
+  const port = config.get<number>('PORT', 3000);
+  await app.listen(port, '0.0.0.0');
+  if (process.env.VENUEFLOW_RUNTIME === 'staging') {
+    const databaseUrl = new URL(config.getOrThrow<string>('DATABASE_URL'));
+    const database = decodeURIComponent(databaseUrl.pathname.replace(/^\//, ''));
+    new Logger('VenueFlow').log(
+      `STAGING host=${databaseUrl.hostname} port=${databaseUrl.port || '5432'} database=${database} sslmode=${databaseUrl.searchParams.get('sslmode') ?? 'unset'} listen=${port}`,
+    );
+  }
 }
 void bootstrap();

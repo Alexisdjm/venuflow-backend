@@ -15,6 +15,7 @@ import {
 import { PrismaService } from '../../database/prisma/prisma.service';
 import { CreateSpaDto, UpdateSpaDto } from './dto/spa.dto';
 import { ProvisionAdminDto } from './dto/provision-admin.dto';
+import { UpdateAdminDto } from './dto/update-admin.dto';
 import { PaginationDto } from '../../common/dto/pagination.dto';
 import { AuditService } from '../audit/audit.service';
 import { Prisma } from '../../generated/prisma/client';
@@ -80,6 +81,20 @@ export class SpasService {
     const spa = await this.prisma.spa.findUnique({ where: { id } });
     if (!spa) throw new NotFoundException('No se encontró el spa');
     return this.withPublicUrl(spa);
+  }
+  async getForPlatform(id: string) {
+    const spa = await this.get(id);
+    const admin = await this.prisma.user.findFirst({
+      where: { spaId: id, role: 'SPA_ADMIN' },
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        email: true,
+        status: true,
+      },
+    });
+    return { ...spa, admin };
   }
   async update(actorUserId: string, id: string, dto: UpdateSpaDto) {
     this.assertPublicSlug(dto.slug);
@@ -205,6 +220,65 @@ export class SpasService {
       action: 'SPA_ADMIN_PROVISIONED',
       entityType: 'User',
       entityId: admin.id,
+    });
+    return admin;
+  }
+  async updateAdmin(actorUserId: string, spaId: string, dto: UpdateAdminDto) {
+    await this.get(spaId);
+    const current = await this.prisma.user.findFirst({
+      where: { spaId, role: 'SPA_ADMIN' },
+    });
+    if (!current)
+      throw new NotFoundException('Este spa todavía no tiene administradora');
+    const email = dto.email.trim().toLowerCase();
+    const emailChanged = email !== current.email;
+    const passwordChanged = Boolean(dto.password);
+    const admin = await this.prisma
+      .$transaction(async (tx) => {
+        const updated = await tx.user.update({
+          where: { id: current.id },
+          data: {
+            firstName: dto.firstName,
+            lastName: dto.lastName,
+            email,
+            ...(dto.password
+              ? { passwordHash: await argon2.hash(dto.password) }
+              : {}),
+          },
+          select: {
+            id: true,
+            spaId: true,
+            firstName: true,
+            lastName: true,
+            email: true,
+            role: true,
+            status: true,
+            createdAt: true,
+          },
+        });
+        if (emailChanged || passwordChanged) {
+          await tx.session.updateMany({
+            where: { userId: current.id, revokedAt: null },
+            data: { revokedAt: new Date() },
+          });
+        }
+        return updated;
+      })
+      .catch((error: unknown) => {
+        if (
+          error instanceof Prisma.PrismaClientKnownRequestError &&
+          error.code === 'P2002'
+        )
+          throw new ConflictException('Ese correo ya está registrado');
+        throw error;
+      });
+    await this.audit.record({
+      actorUserId,
+      spaId,
+      action: 'SPA_ADMIN_UPDATED',
+      entityType: 'User',
+      entityId: admin.id,
+      metadata: { emailChanged, passwordChanged },
     });
     return admin;
   }

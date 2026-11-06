@@ -284,30 +284,38 @@ describe('HTTP controllers', () => {
     const spas = {
       create: jest.fn(),
       list: jest.fn(),
-      get: jest.fn(),
+      getForPlatform: jest.fn(),
       update: jest.fn(),
       provisionAdmin: jest.fn(),
+      updateAdmin: jest.fn(),
     };
     const controller = new PlatformSpasController(spas as never);
     const query = { page: 1, limit: 10 };
     const createDto = { name: 'Spa' } as never;
     const updateDto = { status: 'ACTIVE' } as never;
     const provisionDto = { email: 'admin@example.com' } as never;
+    const updateAdminDto = { email: 'nueva@example.com' } as never;
 
     controller.create(admin, createDto);
     controller.list(query);
     controller.get('spa-2');
     controller.update(admin, 'spa-2', updateDto);
     controller.admin(admin, 'spa-2', provisionDto);
+    controller.updateAdmin(admin, 'spa-2', updateAdminDto);
 
     expect(spas.create).toHaveBeenCalledWith('user-1', createDto);
     expect(spas.list).toHaveBeenCalledWith(query);
-    expect(spas.get).toHaveBeenCalledWith('spa-2');
+    expect(spas.getForPlatform).toHaveBeenCalledWith('spa-2');
     expect(spas.update).toHaveBeenCalledWith('user-1', 'spa-2', updateDto);
     expect(spas.provisionAdmin).toHaveBeenCalledWith(
       'user-1',
       'spa-2',
       provisionDto,
+    );
+    expect(spas.updateAdmin).toHaveBeenCalledWith(
+      'user-1',
+      'spa-2',
+      updateAdminDto,
     );
   });
 

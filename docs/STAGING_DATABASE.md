@@ -49,5 +49,11 @@ base y `sslmode`. `staging:check` ejecuta `prisma migrate status` contra ese
 destino y no aplica migraciones.
 
 `staging:migrate` es `migrate deploy`. No forma parte de la comprobación.
-`staging:start` arranca el build con `VENUEFLOW_ENV_FILE=.env.staging`, así
-Nest no rellena variables que falten desde `.env`.
+
+`staging:start` compila e inicia Nest en esta máquina contra `.env.staging`.
+El proceso marca `VENUEFLOW_RUNTIME=staging` y, al escuchar, escribe una línea
+`STAGING` con host, puerto, base y `sslmode`. No imprime usuario ni contraseña.
+Las variables de la aplicación se toman solo de `.env.staging`; un `DATABASE_URL`
+o un JWT que ya estén en la terminal no entran. `.env` y el Postgres de Docker
+siguen siendo el destino de `npm run start:dev`. Si ambos usan el puerto 3000,
+detén el proceso local antes de arrancar staging.

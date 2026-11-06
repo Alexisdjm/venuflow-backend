@@ -171,4 +171,103 @@ describe('SpasService', () => {
       expect.objectContaining({ action: 'SPA_ADMIN_PROVISIONED' }),
     );
   });
+
+  it('rejects an administrator update when the spa has none', async () => {
+    const prisma = {
+      spa: { findUnique: jest.fn().mockResolvedValue({ id: 'spa' }) },
+      user: { findFirst: jest.fn().mockResolvedValue(null) },
+    };
+    const service = new SpasService(prisma as never, audit as never);
+
+    await expect(
+      service.updateAdmin('actor', 'spa', {
+        firstName: 'Ana',
+        lastName: 'Pérez',
+        email: 'ana@example.com',
+      }),
+    ).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it('updates the existing administrator and revokes sessions when access changes', async () => {
+    const tx = {
+      user: {
+        update: jest.fn().mockResolvedValue({ id: 'admin', email: 'nueva@example.com' }),
+      },
+      session: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+    };
+    const prisma = {
+      spa: { findUnique: jest.fn().mockResolvedValue({ id: 'spa', slug: 'demo' }) },
+      user: {
+        findFirst: jest.fn().mockResolvedValue({
+          id: 'admin',
+          email: 'admin.spa.a@example.com',
+        }),
+      },
+      $transaction: jest.fn(async (callback: (client: typeof tx) => Promise<unknown>) =>
+        callback(tx),
+      ),
+    };
+    const service = new SpasService(prisma as never, audit as never);
+
+    await service.updateAdmin('actor', 'spa', {
+      firstName: 'Ana',
+      lastName: 'Pérez',
+      email: 'NUEVA@EXAMPLE.COM',
+      password: 'otra-clave-larga',
+    });
+
+    expect(argon2.hash).toHaveBeenCalledWith('otra-clave-larga');
+    expect(tx.user.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'admin' },
+        data: expect.objectContaining({
+          email: 'nueva@example.com',
+          passwordHash: 'hash',
+        }),
+      }),
+    );
+    expect(tx.session.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { userId: 'admin', revokedAt: null } }),
+    );
+    expect(audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'SPA_ADMIN_UPDATED',
+        metadata: { emailChanged: true, passwordChanged: true },
+      }),
+    );
+  });
+
+  it('keeps the password and open sessions when only the name changes', async () => {
+    const tx = {
+      user: { update: jest.fn().mockResolvedValue({ id: 'admin' }) },
+      session: { updateMany: jest.fn() },
+    };
+    const prisma = {
+      spa: { findUnique: jest.fn().mockResolvedValue({ id: 'spa', slug: 'demo' }) },
+      user: {
+        findFirst: jest.fn().mockResolvedValue({
+          id: 'admin',
+          email: 'admin.spa.a@example.com',
+        }),
+      },
+      $transaction: jest.fn(async (callback: (client: typeof tx) => Promise<unknown>) =>
+        callback(tx),
+      ),
+    };
+    const service = new SpasService(prisma as never, audit as never);
+
+    await service.updateAdmin('actor', 'spa', {
+      firstName: 'Ana',
+      lastName: 'Pérez',
+      email: 'admin.spa.a@example.com',
+    });
+
+    expect(argon2.hash).not.toHaveBeenCalled();
+    expect(tx.user.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.not.objectContaining({ passwordHash: expect.anything() }),
+      }),
+    );
+    expect(tx.session.updateMany).not.toHaveBeenCalled();
+  });
 });
