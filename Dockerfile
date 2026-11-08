@@ -7,6 +7,10 @@ FROM deps AS build
 COPY prisma ./prisma
 COPY prisma.config.ts tsconfig*.json nest-cli.json ./
 COPY src ./src
+# prisma.config.ts requires DATABASE_URL to load. Generate does not connect.
+# This value stays in the build stage and is not the runtime database.
+ARG DATABASE_URL=postgresql://build:build@127.0.0.1:5432/build
+ENV DATABASE_URL=$DATABASE_URL
 RUN npx prisma generate && npm run build && npm prune --omit=dev
 
 FROM node:22-alpine AS runtime
