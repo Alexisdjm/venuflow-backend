@@ -8,3 +8,4 @@ coverage/
 .docker-test-config/
 *.tsbuildinfo
 src/generated/prisma/
+scripts/jenkins-deploy.sh
