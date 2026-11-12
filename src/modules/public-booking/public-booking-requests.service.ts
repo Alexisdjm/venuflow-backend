@@ -571,41 +571,37 @@ export class PublicBookingRequestsService {
     request: BookingRecord,
     client: Prisma.TransactionClient,
   ) {
+    // National ID is the stable identity inside the spa. Email, phone and name
+    // come from this verified request: the confirmation link already proved
+    // control of the submitted inbox, so a returning guest may update contact.
     const input = {
-      name: request.submittedName,
-      phone: request.submittedPhone,
+      name: request.submittedName.trim().replace(/\s+/g, ' '),
+      phone: request.submittedPhone.trim(),
       nationalId: request.nationalId,
-      email: request.email,
+      email: request.email.trim().toLowerCase(),
     };
     const where = {
       spaId_nationalId: { spaId: request.spaId, nationalId: input.nationalId },
     };
-    const accept = (customer: {
-      id: string;
-      spaId: string;
-      name: string;
-      email: string | null;
-    }) => {
-      if (
-        customer.spaId !== request.spaId ||
-        !customer.email ||
-        customer.email.trim().toLowerCase() !==
-          input.email.trim().toLowerCase() ||
-        normalizeName(customer.name) !== normalizeName(input.name)
-      ) {
-        throw new ConflictException(
-          'No se puede completar esta reserva en línea. Contacta al spa.',
-        );
-      }
-    };
     await client.$queryRaw`SELECT 1 AS locked FROM pg_advisory_xact_lock(hashtextextended(${`customer:${request.spaId}:${input.nationalId}`}, 0))`;
     await client.$queryRaw`SELECT "id" FROM "Customer" WHERE "spaId" = ${request.spaId}::uuid AND "nationalId" = ${input.nationalId} FOR UPDATE`;
     const customer = await client.customer.findUnique({ where });
-    if (customer) {
-      accept(customer);
-      return customer;
+    if (!customer) {
+      return client.customer.create({ data: { spaId: request.spaId, ...input } });
     }
-    return client.customer.create({ data: { spaId: request.spaId, ...input } });
+    if (customer.spaId !== request.spaId) {
+      throw new ConflictException(
+        'No se puede completar esta reserva en línea. Contacta al spa.',
+      );
+    }
+    return client.customer.update({
+      where: { id: customer.id },
+      data: {
+        name: input.name,
+        phone: input.phone,
+        email: input.email,
+      },
+    });
   }
 
   private assertRelations(request: BookingRecord) {
@@ -1089,10 +1085,3 @@ function formatWhen(value: Date, timezone: string) {
     .toLocaleString(DateTime.DATETIME_MED_WITH_WEEKDAY);
 }
 
-function normalizeName(name: string) {
-  return name
-    .normalize('NFKC')
-    .trim()
-    .replace(/\s+/g, ' ')
-    .toLocaleLowerCase('es');
-}

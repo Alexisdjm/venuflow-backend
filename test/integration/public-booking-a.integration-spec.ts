@@ -213,7 +213,7 @@ describe('Block A public booking security (real PostgreSQL)', () => {
   });
 
   it.each([{ email: 'different@example.test' }, { name: 'Different Name' }])(
-    'refuses contradictory identity only after verification, without leaking stored data: %j',
+    'keeps pending opaque and updates stored contact after verification: %j',
     async (change) => {
       const stored = await db.customer.create({ data: { spaId, ...customer } });
       const p = await pending(change);
@@ -222,13 +222,19 @@ describe('Block A public booking security (real PostgreSQL)', () => {
       const details = await api.details(p.token);
       expect(JSON.stringify(details)).not.toContain(customer.email);
       expect(JSON.stringify(details)).not.toContain(customer.phone);
-      await expect(api.confirm(p.token, randomUUID())).rejects.toMatchObject({
-        status: 409,
-      });
+      await api.confirm(p.token, randomUUID());
+      expect(await db.appointment.count({ where: { spaId } })).toBe(1);
       expect(
         await db.customer.findUnique({ where: { id: stored.id } }),
-      ).toEqual(stored);
-      expect(await db.appointment.count({ where: { spaId } })).toBe(0);
+      ).toEqual(
+        expect.objectContaining({
+          id: stored.id,
+          nationalId: customer.nationalId,
+          email: (change.email ?? customer.email).toLowerCase(),
+          name: change.name ?? customer.name,
+          phone: customer.phone,
+        }),
+      );
     },
   );
 
@@ -257,11 +263,12 @@ describe('Block A public booking security (real PostgreSQL)', () => {
     ).not.toContain('PRIVATE');
   });
 
-  it('reuses a matching existing contact only after email verification and never overwrites it', async () => {
+  it('reuses an existing contact by national id and updates contact after email verification', async () => {
     const stored = await db.customer.create({ data: { spaId, ...customer } });
     const p = await pending({
       phone: '04149999999',
       name: '  GUEST   Example  ',
+      email: 'otro-correo@example.test',
     });
     await api.confirm(p.token, randomUUID());
     const appointment = await db.appointment.findFirstOrThrow({
@@ -270,7 +277,14 @@ describe('Block A public booking security (real PostgreSQL)', () => {
     expect(appointment.customerId).toBe(stored.id);
     expect(appointment.customerPhone).toBe('04149999999');
     expect(await db.customer.findUnique({ where: { id: stored.id } })).toEqual(
-      stored,
+      expect.objectContaining({
+        id: stored.id,
+        spaId,
+        nationalId: customer.nationalId,
+        name: 'GUEST Example',
+        phone: '04149999999',
+        email: 'otro-correo@example.test',
+      }),
     );
   });
 
