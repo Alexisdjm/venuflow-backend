@@ -9,6 +9,7 @@ const commands = {
   target: null,
   status: ['node_modules/prisma/build/index.js', 'migrate', 'status'],
   deploy: ['node_modules/prisma/build/index.js', 'migrate', 'deploy'],
+  seed: ['node_modules/prisma/build/index.js', 'db', 'seed'],
 };
 
 const appEnvKeys = [
@@ -64,11 +65,17 @@ function isDirectRun() {
 if (isDirectRun()) {
   const action = process.argv[2];
   if (!Object.hasOwn(commands, action)) {
-    console.error('Usage: node scripts/production-guard.mjs target|status|deploy');
+    console.error('Usage: node scripts/production-guard.mjs target|status|deploy|seed');
     process.exit(1);
   }
-  if (action === 'deploy' && process.argv[3] !== 'confirm-production') {
-    console.error('Refusing production migrate. Re-run: npm run production:migrate -- confirm-production');
+  if (
+    (action === 'deploy' || action === 'seed') &&
+    process.argv[3] !== 'confirm-production'
+  ) {
+    const label = action === 'seed' ? 'seed' : 'migrate';
+    console.error(
+      `Refusing production ${label}. Re-run: npm run production:${label} -- confirm-production`,
+    );
     process.exit(1);
   }
 
@@ -85,7 +92,22 @@ if (isDirectRun()) {
     `Production target: ${userKind}.${projectRef}@${host}:${port}/${database} sslmode=${sslmode}`,
   );
   if (action === 'deploy') {
-    console.log('Confirmed production migrate deploy. No seed will run.');
+    console.log('Confirmed production migrate deploy.');
+  }
+  if (action === 'seed') {
+    const password = production.env.PLATFORM_ADMIN_PASSWORD ?? '';
+    if (
+      !production.env.PLATFORM_ADMIN_EMAIL?.trim() ||
+      password.length < 12 ||
+      !production.env.PLATFORM_ADMIN_FIRST_NAME?.trim() ||
+      !production.env.PLATFORM_ADMIN_LAST_NAME?.trim()
+    ) {
+      console.error(
+        'Set PLATFORM_ADMIN_EMAIL, PLATFORM_ADMIN_PASSWORD (12+), PLATFORM_ADMIN_FIRST_NAME and PLATFORM_ADMIN_LAST_NAME in .env.production',
+      );
+      process.exit(1);
+    }
+    console.log('Confirmed production seed. Creates the platform administrator only.');
   }
   if (action !== 'target') {
     const child = spawn(process.execPath, commandArgs(action), {

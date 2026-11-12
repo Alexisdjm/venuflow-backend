@@ -15,6 +15,7 @@ No copies el usuario, el host ni la contraseña de staging.
 npm run production:target
 npm run production:check
 npm run production:migrate -- confirm-production
+npm run production:seed -- confirm-production
 ```
 
 `production:target` no abre una conexión. Imprime el tipo de usuario, la
@@ -23,8 +24,11 @@ referencia del proyecto, el host, el puerto, la base y `sslmode`.
 `production:check` ejecuta solo `prisma migrate status`.
 
 `production:migrate` sin el argumento `confirm-production` no hace nada.
-Con ese argumento ejecuta solo `prisma migrate deploy`. No arranca Nest y no
-ejecuta seed. Nest no migra al iniciar.
+Con ese argumento ejecuta solo `prisma migrate deploy`. Nest no migra al iniciar.
+
+`production:seed` crea el administrador de plataforma a partir de
+`PLATFORM_ADMIN_*` en `.env.production`. La contraseña debe tener al menos 12
+caracteres. Si ese correo ya es platform admin, no cambia la contraseña.
 
 ## Corte de Jenkins
 

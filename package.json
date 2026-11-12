@@ -27,6 +27,7 @@
     "production:target": "node scripts/production-guard.mjs target",
     "production:check": "node scripts/production-guard.mjs status",
     "production:migrate": "node scripts/production-guard.mjs deploy",
+    "production:seed": "node scripts/production-guard.mjs seed",
     "lint": "oxlint src/ test/",
     "test": "jest",
     "test:watch": "jest --watch",
