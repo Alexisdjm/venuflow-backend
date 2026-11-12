@@ -1,3 +1,4 @@
+import { bookingTokenSecret } from '../public-booking/booking-secret';
 import { bookingToken } from '../public-booking/booking-tokens';
 import {
   BadRequestException,
@@ -949,10 +950,7 @@ export class AppointmentsService {
   }
 
   private receiptToken(id: string) {
-    const secret = this.config?.get<string>('PUBLIC_BOOKING_TOKEN_SECRET') ??
-      this.config?.get<string>('JWT_ACCESS_SECRET');
-    if (!secret) throw new Error('Missing booking token secret');
-    return bookingToken(secret, id, 'receipt');
+    return bookingToken(bookingTokenSecret(this.config), id, 'receipt');
   }
 
   private formatWhen(value: Date, timezone: string) {

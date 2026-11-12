@@ -36,8 +36,9 @@ git. El guardián exige que ese archivo exista.
 ## Comandos
 
 Todos leen únicamente `.env.staging`, sustituyen `DATABASE_URL` aunque el
-entorno ya traiga la base local, y rechazan localhost, el puerto 5433 y las
-bases `venueflow` y `venueflow_test`.
+entorno ya traiga la base local, y rechazan localhost, el puerto 5433, las
+bases `venueflow` y `venueflow_test`, y cualquier proyecto Supabase que no sea
+el de staging.
 
 ```text
 npm run staging:target

@@ -24,6 +24,10 @@ class EnvironmentVariables {
   @IsString() @MinLength(32) JWT_ACCESS_SECRET!: string;
   @Transform(({ value }) => blankToUndefined(value))
   @IsOptional()
+  @IsIn(['local', 'staging', 'production'])
+  VENUEFLOW_ENV?: string;
+  @Transform(({ value }) => blankToUndefined(value))
+  @IsOptional()
   @IsString()
   @MinLength(32)
   PUBLIC_BOOKING_TOKEN_SECRET?: string;
@@ -84,5 +88,13 @@ export function validateEnvironment(config: Record<string, unknown>) {
   });
   const errors = validateSync(validated, { skipMissingProperties: false });
   if (errors.length) throw new Error(errors.toString());
+  if (validated.VENUEFLOW_ENV === 'production') {
+    const booking = validated.PUBLIC_BOOKING_TOKEN_SECRET;
+    if (!booking || booking === validated.JWT_ACCESS_SECRET) {
+      throw new Error(
+        'PUBLIC_BOOKING_TOKEN_SECRET must be set and must differ from JWT_ACCESS_SECRET when VENUEFLOW_ENV=production',
+      );
+    }
+  }
   return validated;
 }

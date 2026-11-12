@@ -6,6 +6,7 @@ import {
   acceptsPublicBookings,
   publicServiceEligibility,
 } from './public-booking-policy';
+import { bookingTokenSecret } from './booking-secret';
 import {
   bookingToken,
   bookingTokenHash,
@@ -551,10 +552,7 @@ export class PublicBookingRequestsService {
   }
 
   private tokenFor(id: string, purpose: 'verification' | 'receipt' | 'resend') {
-    const secret =
-      this.config.get<string>('PUBLIC_BOOKING_TOKEN_SECRET') ??
-      this.config.getOrThrow<string>('JWT_ACCESS_SECRET');
-    return bookingToken(secret, id, purpose);
+    return bookingToken(bookingTokenSecret(this.config), id, purpose);
   }
 
   private verificationToken(request: BookingRecord) {
