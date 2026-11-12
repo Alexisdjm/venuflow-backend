@@ -208,6 +208,57 @@ describe('AppointmentsService', () => {
     );
   });
 
+  it('adds the service extra commission to the professional rate', async () => {
+    const prisma = {
+      spaService: {
+        findUnique: jest.fn().mockResolvedValue({
+          ...fixedService,
+          extraCommission: true,
+          extraCommissionRate: new Prisma.Decimal(10),
+        }),
+      },
+      spa: { findUniqueOrThrow: jest.fn().mockResolvedValue(spa) },
+      professionalService: {
+        findMany: jest.fn().mockResolvedValue([{ professionalId: 'pro-id' }]),
+        findFirst: jest.fn().mockResolvedValue({
+          professional: { commissionRate: new Prisma.Decimal(40) },
+        }),
+      },
+      professionalSchedule: {
+        findFirst: jest.fn().mockResolvedValue({ id: 'schedule-id' }),
+      },
+      customer: {
+        findUnique: jest.fn().mockResolvedValue({
+          id: 'customer-id',
+          name: 'Ana',
+          nationalId: '12345678',
+          phone: '04120000000',
+          email: null,
+        }),
+      },
+      appointment: {
+        findFirst: jest.fn().mockResolvedValue(null),
+        create: jest.fn().mockResolvedValue({ id: 'appointment-id' }),
+      },
+    };
+    const service = new AppointmentsService(
+      prisma as never,
+      audit as never,
+      new SchedulingService(prisma as never),
+    );
+
+    await service.create(admin, {
+      serviceId: 'service-id',
+      customerId: 'customer-id',
+      startAt: future()!,
+      paymentMethod: 'PAGO_MOVIL',
+    });
+
+    expect(
+      prisma.appointment.create.mock.calls[0][0].data.commissionRate.toString(),
+    ).toBe('50');
+  });
+
   it('honors an explicitly selected professional instead of assigning randomly', async () => {
     const appointment = { id: 'appointment-id', professionalId: 'pro-fixed' };
     const prisma = {
@@ -511,6 +562,52 @@ describe('AppointmentsService', () => {
     expect(audit.record).toHaveBeenCalledWith(
       expect.objectContaining({ action: 'APPOINTMENT_RESCHEDULED' }),
     );
+  });
+
+  it('recalculates commission when the appointment moves to another professional', async () => {
+    const currentStart = DateTime.utc()
+      .plus({ days: 1 })
+      .startOf('day')
+      .plus({ hours: 10 });
+    const current = {
+      id: 'appointment-id',
+      status: 'CONFIRMED',
+      startAt: currentStart.toJSDate(),
+      endAt: currentStart.plus({ hours: 1 }).toJSDate(),
+      professionalId: 'pro-id',
+      serviceId: 'service-id',
+      service: {
+        ...fixedService,
+        extraCommission: true,
+        extraCommissionRate: new Prisma.Decimal(10),
+      },
+    };
+    const prisma = {
+      appointment: {
+        findFirst: jest.fn().mockResolvedValueOnce(current).mockResolvedValue(null),
+        update: jest.fn().mockResolvedValue(current),
+      },
+      spa: { findUniqueOrThrow: jest.fn().mockResolvedValue(spa) },
+      professionalService: {
+        findFirst: jest.fn().mockResolvedValue({
+          professional: { commissionRate: new Prisma.Decimal(40) },
+        }),
+      },
+      professionalSchedule: {
+        findFirst: jest.fn().mockResolvedValue({ id: 'schedule-id' }),
+      },
+    };
+    const service = new AppointmentsService(
+      prisma as never,
+      audit as never,
+      new SchedulingService(prisma as never),
+    );
+
+    await service.update(admin, current.id, { professionalId: 'pro-next' });
+
+    expect(
+      prisma.appointment.update.mock.calls[0][0].data.commissionRate.toString(),
+    ).toBe('50');
   });
 
   it('prevents professionals from transferring their appointments', async () => {

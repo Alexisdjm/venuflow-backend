@@ -1,0 +1,2 @@
+ALTER TABLE "SpaService" ADD COLUMN "extraCommission" BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE "SpaService" ADD COLUMN "extraCommissionRate" DECIMAL(5,2) NOT NULL DEFAULT 0;

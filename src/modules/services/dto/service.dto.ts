@@ -29,6 +29,10 @@ export class CreateServiceDto {
   durationMinutes?: number;
   @IsOptional() @IsIn(['FIXED', 'VARIABLE']) priceType?: 'FIXED' | 'VARIABLE';
   @IsDecimal({ decimal_digits: '0,2' }) price!: string;
+  @IsOptional() @IsBoolean() extraCommission?: boolean;
+  @ValidateIf((dto: CreateServiceDto) => dto.extraCommission === true)
+  @IsDecimal({ decimal_digits: '0,2' })
+  extraCommissionRate?: string;
 }
 export class UpdateServiceDto extends PartialType(CreateServiceDto) {
   @IsOptional() @IsBoolean() isActive?: boolean;

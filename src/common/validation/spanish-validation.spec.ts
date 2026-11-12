@@ -21,6 +21,20 @@ describe('spanishValidationMessages', () => {
     ]);
   });
 
+  it('explains a mailbox outside the usual providers', () => {
+    expect(
+      spanishValidationMessages([
+        {
+          property: 'email',
+          constraints: { mailboxProvider: 'domain' },
+          children: [],
+        },
+      ]),
+    ).toEqual([
+      'Usa un correo de Gmail, Outlook, Hotmail, iCloud u otro proveedor habitual.',
+    ]);
+  });
+
   it('explains a reserved public slug', () => {
     expect(
       spanishValidationMessages([

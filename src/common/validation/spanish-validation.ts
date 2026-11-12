@@ -5,6 +5,7 @@ const labels: Record<string, string> = {
   additionalPrice: 'El adicional',
   closingMinute: 'La hora de cierre',
   commissionRate: 'La comisión',
+  extraCommissionRate: 'La comisión extra',
   currentPassword: 'La contraseña actual',
   customerEmail: 'El correo',
   customerName: 'El nombre',
@@ -29,7 +30,9 @@ const labels: Record<string, string> = {
   price: 'El precio',
   professionalId: 'La profesional',
   serviceId: 'El servicio',
+  currency: 'La moneda',
   slug: 'El identificador',
+  timezone: 'La zona horaria',
   startAt: 'El horario',
   startTime: 'La hora de inicio',
   status: 'El estado',
@@ -50,6 +53,8 @@ function phrase(constraint: string, field: string) {
       return `${field} es demasiado largo.`;
     case 'isEmail':
       return `${field} no es un correo válido.`;
+    case 'mailboxProvider':
+      return 'Usa un correo de Gmail, Outlook, Hotmail, iCloud u otro proveedor habitual.';
     case 'matches':
       return `${field} no tiene el formato correcto.`;
     case 'isISO8601':

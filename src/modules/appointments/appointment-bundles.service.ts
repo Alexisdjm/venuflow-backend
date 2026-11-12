@@ -16,6 +16,7 @@ import {
   sequenceStaysOpen,
   shiftCovers,
 } from '../scheduling/scheduling.service';
+import { effectiveCommissionRate } from '../services/extra-commission';
 import {
   AppointmentBundleItemDto,
   BundleAvailabilityDto,
@@ -195,7 +196,10 @@ export class AppointmentBundlesService {
           categoryName: item.service.category.name,
           professionalId: assignment.professionalId,
           professionalName: assignment.professional.displayName,
-          commissionRate: assignment.professional.commissionRate.toString(),
+          commissionRate: effectiveCommissionRate(
+            assignment.professional.commissionRate,
+            item.service,
+          ).toString(),
           start: cursor.toUTC().toISO(),
           end: end.toUTC().toISO(),
           durationMinutes: item.durationMinutes,

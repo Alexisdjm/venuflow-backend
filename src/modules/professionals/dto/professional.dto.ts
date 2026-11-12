@@ -8,10 +8,11 @@ import {
   MaxLength,
   MinLength,
 } from 'class-validator';
+import { IsMailboxProvider } from '../../../common/validation/mailbox-provider';
 export class CreateProfessionalDto {
   @IsString() @MinLength(2) firstName!: string;
   @IsString() @MinLength(2) lastName!: string;
-  @IsEmail() email!: string;
+  @IsEmail() @IsMailboxProvider() email!: string;
   @IsString() @MinLength(12) @MaxLength(128) password!: string;
   @IsString() @MinLength(2) displayName!: string;
   @IsDecimal({ decimal_digits: '0,2' }) commissionRate!: string;

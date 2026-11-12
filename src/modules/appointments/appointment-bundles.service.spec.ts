@@ -29,7 +29,11 @@ describe('AppointmentBundlesService', () => {
 
   it('builds consecutive segments with the requested professional per service', async () => {
     const services = [
-      service('nails', 'cat-nails', 60),
+      {
+        ...service('nails', 'cat-nails', 60),
+        extraCommission: true,
+        extraCommissionRate: new Prisma.Decimal(10),
+      },
       service('hair', 'cat-hair', 120),
     ];
     const prisma = {
@@ -88,6 +92,7 @@ describe('AppointmentBundlesService', () => {
     expect(result.data[0].segments).toMatchObject([
       {
         professionalId: 'pro-nails',
+        commissionRate: '30',
         start: '2099-10-25T09:00:00.000Z',
         end: '2099-10-25T10:00:00.000Z',
       },

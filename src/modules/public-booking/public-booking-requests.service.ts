@@ -33,6 +33,7 @@ import {
   type PublicSequenceSegment,
 } from './public-booking.service';
 import { SchedulingService } from '../scheduling/scheduling.service';
+import { effectiveCommissionRate } from '../services/extra-commission';
 
 const REQUEST_MINUTES = 15;
 const RESEND_SECONDS = 60;
@@ -132,7 +133,10 @@ export class PublicBookingRequestsService {
             categoryId: service.categoryId,
             professionalId: professionalId ?? '',
             professionalName: '',
-            commissionRate: available.commissionRate.toString(),
+            commissionRate: effectiveCommissionRate(
+              available.commissionRate,
+              service,
+            ).toString(),
             price: service.price.toString(),
             durationMinutes: service.durationMinutes,
             currency: spa.currency,
@@ -266,6 +270,21 @@ export class PublicBookingRequestsService {
           }
           await this.assertConfirmable(fresh, tx);
           const customer = await this.verifiedCustomer(fresh, tx);
+          const serviceExtras = new Map(
+            (
+              await tx.spaService.findMany({
+                where: {
+                  spaId: fresh.spaId,
+                  id: { in: [...new Set(segments.map((segment) => segment.serviceId))] },
+                },
+                select: {
+                  id: true,
+                  extraCommission: true,
+                  extraCommissionRate: true,
+                },
+              })
+            ).map((service) => [service.id, service]),
+          );
           let firstId = '';
           const professionalIds: string[] = [];
           for (const [index, segment] of segments.entries()) {
@@ -321,7 +340,10 @@ export class PublicBookingRequestsService {
                 appointmentDate,
                 serviceCategoryId: segment.categoryId,
                 servicePrice: new Prisma.Decimal(segment.price),
-                commissionRate: chosen.commissionRate,
+                commissionRate: effectiveCommissionRate(
+                  chosen.commissionRate,
+                  serviceExtras.get(segment.serviceId),
+                ),
                 isWalkIn: false,
                 createdById: null,
                 ...(segments.length > 1
@@ -1045,7 +1067,7 @@ function readSegments(value: Prisma.JsonValue | null): PublicSequenceSegment[] {
         durationMinutes:
           typeof row.durationMinutes === 'number' ? row.durationMinutes : 0,
         currency:
-          typeof row.currency === 'string' && /^[A-Z]{3}$/.test(row.currency)
+          typeof row.currency === 'string' && /^[A-Z]{3,4}$/.test(row.currency)
             ? row.currency
             : undefined,
         timezone: typeof row.timezone === 'string' ? row.timezone : undefined,

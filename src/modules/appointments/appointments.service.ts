@@ -15,6 +15,7 @@ import { Prisma } from '../../generated/prisma/client';
 import { afterCommit } from '../../common/after-commit';
 import { publicSpaUrl, readBookingUrlConfig } from '../../common/public-booking-url';
 import { AuditService } from '../audit/audit.service';
+import { effectiveCommissionRate } from '../services/extra-commission';
 import { MailService } from '../mail/mail.service';
 import {
   pastBeyondGrace,
@@ -362,7 +363,10 @@ export class AppointmentsService {
             appointmentDate,
             serviceCategoryId: service.categoryId,
             servicePrice,
-            commissionRate: assignment.professional.commissionRate,
+            commissionRate: effectiveCommissionRate(
+              assignment.professional.commissionRate,
+              service,
+            ),
             isWalkIn: slot.isWalkIn,
             createdById: u.sub,
           },
@@ -492,7 +496,10 @@ export class AppointmentsService {
           'La profesional no realiza este servicio',
         );
       if (d.professionalId && d.professionalId !== current.professionalId) {
-        commissionRate = assignment.professional.commissionRate;
+        commissionRate = effectiveCommissionRate(
+          assignment.professional.commissionRate,
+          current.service,
+        );
       }
       const schedule = await this.scheduling.shiftCovering(
         spaId,

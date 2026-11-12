@@ -14,6 +14,7 @@ import {
   UpdateServiceCategoryDto,
 } from './dto/service-category.dto';
 import { CreateServiceDto, UpdateServiceDto } from './dto/service.dto';
+import { normalizeExtraCommission } from './extra-commission';
 
 const categorySelection = { select: { id: true, name: true } } as const;
 
@@ -204,6 +205,7 @@ export class ServicesService {
           durationMinutes:
             durationType === 'VARIABLE' ? null : dto.durationMinutes,
           price: this.money(dto.price),
+          ...normalizeExtraCommission(dto.extraCommission, dto.extraCommissionRate),
         },
         include: { category: categorySelection },
       })
@@ -253,6 +255,11 @@ export class ServicesService {
           durationType,
           durationMinutes,
           price: dto.price === undefined ? undefined : this.money(dto.price),
+          ...normalizeExtraCommission(
+            dto.extraCommission,
+            dto.extraCommissionRate,
+            current,
+          ),
         },
         include: { category: categorySelection },
       })

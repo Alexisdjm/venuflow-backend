@@ -10,6 +10,7 @@ import {
   publicServiceEligibility,
 } from './public-booking-policy';
 import { AvailabilityService } from '../availability/availability.service';
+import { effectiveCommissionRate } from '../services/extra-commission';
 import { PrismaService } from '../../database/prisma/prisma.service';
 import {
   notBookableOnline,
@@ -393,7 +394,10 @@ export class PublicBookingService {
           categoryId: item.service.categoryId,
           professionalId: assignment.professionalId,
           professionalName: assignment.professional.displayName,
-          commissionRate: assignment.professional.commissionRate.toString(),
+          commissionRate: effectiveCommissionRate(
+            assignment.professional.commissionRate,
+            item.service,
+          ).toString(),
           price: item.service.price.toString(),
           durationMinutes: item.durationMinutes,
           start: cursor.toUTC().toISO()!,

@@ -54,6 +54,46 @@ describe('ServicesService', () => {
     expect(prisma.spaService.create).toHaveBeenCalled();
   });
 
+  it('saves an extra commission and rejects a rate above 100', async () => {
+    const prisma = {
+      spaService: { create: jest.fn().mockResolvedValue({ id: 'service' }) },
+      serviceCategory: {
+        findFirst: jest.fn().mockResolvedValue({ id: 'category-id' }),
+      },
+    };
+    const service = new ServicesService(prisma as never, audit as never);
+
+    await service.create('spa', 'user', {
+      name: 'Uñas',
+      categoryId: 'category-id',
+      durationType: 'VARIABLE',
+      price: '20',
+      extraCommission: true,
+      extraCommissionRate: '10',
+    });
+    expect(prisma.spaService.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          extraCommission: true,
+          extraCommissionRate: expect.objectContaining({}),
+        }),
+      }),
+    );
+    const saved = prisma.spaService.create.mock.calls[0][0].data.extraCommissionRate;
+    expect(saved.toString()).toBe('10');
+
+    await expect(
+      service.create('spa', 'user', {
+        name: 'Uñas',
+        categoryId: 'category-id',
+        durationType: 'VARIABLE',
+        price: '20',
+        extraCommission: true,
+        extraCommissionRate: '101',
+      }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
   it('requires a duration for fixed services', async () => {
     const service = new ServicesService({} as never, audit as never);
     await expect(

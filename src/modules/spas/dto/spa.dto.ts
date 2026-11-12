@@ -3,7 +3,6 @@ import {
   IsIn,
   IsString,
   IsTimeZone,
-  Length,
   Matches,
   MaxLength,
   MinLength,
@@ -24,6 +23,8 @@ class PublicSpaSlugConstraint implements ValidatorConstraintInterface {
   }
 }
 
+export const SPA_CURRENCIES = ['USD', 'USDT', 'EUR', 'VES'] as const;
+
 export class CreateSpaDto {
   @ApiProperty() @IsString() @MinLength(2) @MaxLength(120) name!: string;
   @ApiProperty({ example: 'spa-caracas' })
@@ -31,10 +32,9 @@ export class CreateSpaDto {
   @Validate(PublicSpaSlugConstraint)
   slug!: string;
   @ApiProperty({ example: 'America/Caracas' }) @IsTimeZone() timezone!: string;
-  @ApiProperty({ example: 'USD' })
-  @Length(3, 3)
-  @Matches(/^[A-Z]{3}$/)
-  currency!: string;
+  @ApiProperty({ enum: SPA_CURRENCIES, example: 'USD' })
+  @IsIn(SPA_CURRENCIES)
+  currency!: (typeof SPA_CURRENCIES)[number];
 }
 export class UpdateSpaDto extends PartialType(CreateSpaDto) {
   @ApiProperty({ enum: SpaStatus, required: false })
