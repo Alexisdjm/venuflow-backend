@@ -1,8 +1,14 @@
-/** Shared entry point for future online-booking policy; no hostname authorization. */
-export function acceptsPublicBookings<T extends { status: string }>(
-  spa: T | null | undefined,
-): spa is T {
-  return spa?.status === 'ACTIVE';
+/** Shared entry point for online-booking policy; no hostname authorization. */
+export function includesPublicBooking(
+  spa: { plan?: string | null } | null | undefined,
+) {
+  return spa?.plan === 'PLUS';
+}
+
+export function acceptsPublicBookings<
+  T extends { status: string; plan?: string | null },
+>(spa: T | null | undefined): spa is T {
+  return spa?.status === 'ACTIVE' && includesPublicBooking(spa);
 }
 
 export function publicServiceEligibility(

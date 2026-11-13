@@ -30,6 +30,7 @@ class PublicSpaSlugConstraint implements ValidatorConstraintInterface {
 }
 
 export const SPA_CURRENCIES = ['USD', 'USDT', 'EUR', 'VES'] as const;
+export const SPA_PLANS = ['BASIC', 'PLUS'] as const;
 
 export class CreateSpaDto {
   @ApiProperty() @IsString() @MinLength(2) @MaxLength(120) name!: string;
@@ -41,6 +42,9 @@ export class CreateSpaDto {
   @ApiProperty({ enum: SPA_CURRENCIES, example: 'USD' })
   @IsIn(SPA_CURRENCIES)
   currency!: (typeof SPA_CURRENCIES)[number];
+  @ApiProperty({ enum: SPA_PLANS, example: 'BASIC' })
+  @IsIn(SPA_PLANS)
+  plan!: (typeof SPA_PLANS)[number];
 }
 export class UpdateSpaDto extends PartialType(CreateSpaDto) {
   @ApiProperty({ enum: SpaStatus, required: false })

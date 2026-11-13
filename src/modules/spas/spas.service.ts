@@ -21,6 +21,7 @@ import { AuditService } from '../audit/audit.service';
 import { DateTime } from 'luxon';
 import { Prisma } from '../../generated/prisma/client';
 import { billingSnapshot, PLATFORM_TIMEZONE } from './billing-due';
+import { includesPublicBooking } from '../public-booking/public-booking-policy';
 import {
   DEFAULT_SERVICE_CATEGORIES,
   normalizeCategoryName,
@@ -93,6 +94,7 @@ export class SpasService {
           name: true,
           slug: true,
           status: true,
+          plan: true,
           timezone: true,
           billingDueDay: true,
           createdAt: true,
@@ -170,7 +172,8 @@ export class SpasService {
       );
     }
   }
-  private withPublicUrl<T extends { slug: string }>(spa: T) {
+  private withPublicUrl<T extends { slug: string; plan?: string | null }>(spa: T) {
+    if (!includesPublicBooking(spa)) return { ...spa, publicUrl: null };
     try {
       const settings = readBookingUrlConfig((key) =>
         this.config?.get<string>(key),

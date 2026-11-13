@@ -1,4 +1,17 @@
-import { publicServiceEligibility } from './public-booking-policy';
+import {
+  acceptsPublicBookings,
+  publicServiceEligibility,
+} from './public-booking-policy';
+
+describe('Public booking access', () => {
+  it('keeps the remote form for an active Plus spa only', () => {
+    expect(acceptsPublicBookings({ status: 'ACTIVE', plan: 'PLUS' })).toBe(true);
+    expect(acceptsPublicBookings({ status: 'SUSPENDED', plan: 'PLUS' })).toBe(false);
+    expect(acceptsPublicBookings({ status: 'ACTIVE', plan: 'BASIC' })).toBe(false);
+    expect(acceptsPublicBookings({ status: 'ACTIVE' })).toBe(false);
+    expect(acceptsPublicBookings(null)).toBe(false);
+  });
+});
 
 describe('Public service policy', () => {
   const fixed = {

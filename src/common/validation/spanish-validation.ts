@@ -25,6 +25,7 @@ const labels: Record<string, string> = {
   newPassword: 'La nueva contraseña',
   notes: 'Las notas',
   openingMinute: 'La hora de apertura',
+  plan: 'El plan',
   password: 'La contraseña',
   paymentMethod: 'La forma de pago',
   phone: 'El teléfono',

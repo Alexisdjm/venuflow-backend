@@ -11,6 +11,10 @@ enum SpaStatus {
   ACTIVE
   SUSPENDED
 }
+enum SpaPlan {
+  BASIC
+  PLUS
+}
 enum UserRole {
   PLATFORM_ADMIN
   SPA_ADMIN
@@ -45,6 +49,7 @@ model Spa {
   name      String
   slug      String     @unique
   status    SpaStatus  @default(ACTIVE)
+  plan      SpaPlan    @default(PLUS)
   timezone  String
   currency  String     @db.VarChar(4)
   openingMinute Int     @default(540)

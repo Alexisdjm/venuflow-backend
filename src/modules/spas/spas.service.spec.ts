@@ -298,6 +298,32 @@ describe('SpasService', () => {
     expect(summary.spas.map((item) => item.id)).toEqual(['soon', 'passed', 'recent']);
     expect(summary.spas[1]).toEqual(expect.objectContaining({ status: 'SUSPENDED', attention: 'reached' }));
   });
+
+  it('publishes the remote form address only for a Plus spa', async () => {
+    const config = {
+      get: (key: string) =>
+        ({
+          PUBLIC_BOOKING_ROOT_DOMAIN: 'tryvenueflow.com',
+          PUBLIC_BOOKING_PROTOCOL: 'https',
+        })[key],
+    };
+    const prisma = {
+      spa: {
+        findUnique: jest
+          .fn()
+          .mockResolvedValueOnce({ id: 'plus', slug: 'plus-spa', plan: 'PLUS' })
+          .mockResolvedValueOnce({ id: 'basic', slug: 'basic-spa', plan: 'BASIC' }),
+      },
+    };
+    const service = new SpasService(prisma as never, audit as never, config as never);
+
+    await expect(service.get('plus')).resolves.toEqual(
+      expect.objectContaining({ publicUrl: 'https://plus-spa.tryvenueflow.com' }),
+    );
+    await expect(service.get('basic')).resolves.toEqual(
+      expect.objectContaining({ publicUrl: null }),
+    );
+  });
 });
 
 function spa(
@@ -312,6 +338,7 @@ function spa(
     slug: id,
     status,
     timezone: 'America/Caracas',
+    plan: 'PLUS',
     billingDueDay,
     createdAt: new Date(createdAt),
   };

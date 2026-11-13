@@ -76,9 +76,12 @@ describe('monthly billing due day', () => {
         openingMinute: 540,
         closingMinute: 1080,
         billingDueDay: 15,
+        plan: 'PLUS',
       }),
       { whitelist: true, forbidNonWhitelisted: true },
     );
-    expect(errors.map((error) => error.property)).toContain('billingDueDay');
+    expect(errors.map((error) => error.property)).toEqual(
+      expect.arrayContaining(['billingDueDay', 'plan']),
+    );
   });
 });
