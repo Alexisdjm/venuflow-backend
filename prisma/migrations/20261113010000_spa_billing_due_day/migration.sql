@@ -1,0 +1,1 @@
+ALTER TABLE "Spa" ADD COLUMN "billingDueDay" INTEGER;

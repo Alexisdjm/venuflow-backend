@@ -33,6 +33,9 @@ export class PlatformSpasController {
   @Get() list(@Query() q: PaginationDto) {
     return this.spas.list(q);
   }
+  @Get('summary') summary() {
+    return this.spas.platformSummary();
+  }
   @Get(':id') get(@Param('id', ParseUUIDPipe) id: string) {
     return this.spas.getForPlatform(id);
   }

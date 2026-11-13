@@ -1,12 +1,18 @@
 import { ApiProperty, PartialType } from '@nestjs/swagger';
+import { Transform } from 'class-transformer';
 import {
   IsIn,
+  IsInt,
+  IsOptional,
   IsString,
   IsTimeZone,
   Matches,
+  Max,
   MaxLength,
+  Min,
   MinLength,
   Validate,
+  ValidateIf,
   ValidatorConstraint,
   type ValidatorConstraintInterface,
 } from 'class-validator';
@@ -40,4 +46,16 @@ export class UpdateSpaDto extends PartialType(CreateSpaDto) {
   @ApiProperty({ enum: SpaStatus, required: false })
   @IsIn(Object.values(SpaStatus))
   status?: SpaStatus;
+  @ApiProperty({ required: false, nullable: true, minimum: 1, maximum: 31 })
+  @Transform(({ value }) => {
+    if (value === '' || value === null) return null;
+    if (typeof value === 'string' && /^\d+$/.test(value)) return Number(value);
+    return value;
+  })
+  @IsOptional()
+  @ValidateIf((_, value) => value !== null)
+  @IsInt()
+  @Min(1)
+  @Max(31)
+  billingDueDay?: number | null;
 }

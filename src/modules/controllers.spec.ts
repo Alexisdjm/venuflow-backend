@@ -285,6 +285,7 @@ describe('HTTP controllers', () => {
       create: jest.fn(),
       list: jest.fn(),
       getForPlatform: jest.fn(),
+      platformSummary: jest.fn(),
       update: jest.fn(),
       provisionAdmin: jest.fn(),
       updateAdmin: jest.fn(),
@@ -298,6 +299,7 @@ describe('HTTP controllers', () => {
 
     controller.create(admin, createDto);
     controller.list(query);
+    controller.summary();
     controller.get('spa-2');
     controller.update(admin, 'spa-2', updateDto);
     controller.admin(admin, 'spa-2', provisionDto);
@@ -305,6 +307,7 @@ describe('HTTP controllers', () => {
 
     expect(spas.create).toHaveBeenCalledWith('user-1', createDto);
     expect(spas.list).toHaveBeenCalledWith(query);
+    expect(spas.platformSummary).toHaveBeenCalled();
     expect(spas.getForPlatform).toHaveBeenCalledWith('spa-2');
     expect(spas.update).toHaveBeenCalledWith('user-1', 'spa-2', updateDto);
     expect(spas.provisionAdmin).toHaveBeenCalledWith(

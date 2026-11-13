@@ -50,6 +50,7 @@ model Spa {
   openingMinute Int     @default(540)
   closingMinute Int     @default(1080)
   walkInGraceMinutes Int @default(5)
+  billingDueDay Int?
   users     User[]
   professionals Professional[]
   services  SpaService[]

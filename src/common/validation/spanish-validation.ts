@@ -3,6 +3,7 @@ import { ValidationError } from 'class-validator';
 
 const labels: Record<string, string> = {
   additionalPrice: 'El adicional',
+  billingDueDay: 'El día de vencimiento',
   closingMinute: 'La hora de cierre',
   commissionRate: 'La comisión',
   extraCommissionRate: 'La comisión extra',

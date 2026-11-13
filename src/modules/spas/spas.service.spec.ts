@@ -3,6 +3,7 @@ import {
   ConflictException,
   NotFoundException,
 } from '@nestjs/common';
+import { DateTime } from 'luxon';
 import * as argon2 from 'argon2';
 import { SpasService } from './spas.service';
 
@@ -270,4 +271,48 @@ describe('SpasService', () => {
     );
     expect(tx.session.updateMany).not.toHaveBeenCalled();
   });
+
+  it('summarizes platform access, monthly reservations and due dates once per spa', async () => {
+    const now = DateTime.fromISO('2026-11-12T15:00:00', { zone: 'America/Caracas' });
+    if (!now.isValid) throw new Error('Fecha de prueba inválida');
+    const prisma = {
+      spa: {
+        findMany: jest.fn().mockResolvedValue([
+          spa('recent', null, '2026-11-10T00:00:00.000Z'),
+          spa('soon', 15, '2026-01-01T00:00:00.000Z'),
+          spa('passed', 10, '2026-06-01T00:00:00.000Z', 'SUSPENDED'),
+        ]),
+      },
+      appointment: { count: jest.fn().mockResolvedValue(4) },
+    };
+    const service = new SpasService(prisma as never, audit as never);
+
+    const summary = await service.platformSummary(now);
+
+    expect(prisma.appointment.count).toHaveBeenCalledTimes(1);
+    expect(summary.registered).toEqual({ total: 3, active: 2, inactive: 1 });
+    expect(summary.activeAccess).toBe(2);
+    expect(summary.upcomingDue).toBe(1);
+    expect(summary.reservationsThisMonth).toBe(4);
+    expect(summary.attention).toEqual({ dueReached: 1, unconfigured: 1, total: 2 });
+    expect(summary.spas.map((item) => item.id)).toEqual(['soon', 'passed', 'recent']);
+    expect(summary.spas[1]).toEqual(expect.objectContaining({ status: 'SUSPENDED', attention: 'reached' }));
+  });
 });
+
+function spa(
+  id: string,
+  billingDueDay: number | null,
+  createdAt: string,
+  status: 'ACTIVE' | 'SUSPENDED' = 'ACTIVE',
+) {
+  return {
+    id,
+    name: id,
+    slug: id,
+    status,
+    timezone: 'America/Caracas',
+    billingDueDay,
+    createdAt: new Date(createdAt),
+  };
+}

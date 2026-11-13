@@ -18,7 +18,9 @@ import { ProvisionAdminDto } from './dto/provision-admin.dto';
 import { UpdateAdminDto } from './dto/update-admin.dto';
 import { PaginationDto } from '../../common/dto/pagination.dto';
 import { AuditService } from '../audit/audit.service';
+import { DateTime } from 'luxon';
 import { Prisma } from '../../generated/prisma/client';
+import { billingSnapshot, PLATFORM_TIMEZONE } from './billing-due';
 import {
   DEFAULT_SERVICE_CATEGORIES,
   normalizeCategoryName,
@@ -81,6 +83,57 @@ export class SpasService {
     const spa = await this.prisma.spa.findUnique({ where: { id } });
     if (!spa) throw new NotFoundException('No se encontró el spa');
     return this.withPublicUrl(spa);
+  }
+  async platformSummary(now = DateTime.now()) {
+    const month = now.setZone(PLATFORM_TIMEZONE);
+    const [spas, reservationsThisMonth] = await Promise.all([
+      this.prisma.spa.findMany({
+        select: {
+          id: true,
+          name: true,
+          slug: true,
+          status: true,
+          timezone: true,
+          billingDueDay: true,
+          createdAt: true,
+        },
+      }),
+      this.prisma.appointment.count({
+        where: {
+          createdAt: {
+            gte: month.startOf('month').toUTC().toJSDate(),
+            lt: month.plus({ months: 1 }).startOf('month').toUTC().toJSDate(),
+          },
+        },
+      }),
+    ]);
+    const rows = spas.map((spa) => {
+      const billing = billingSnapshot(spa.billingDueDay, spa.timezone, now);
+      return { ...this.withPublicUrl(spa), ...billing };
+    });
+    rows.sort((left, right) => {
+      const priority = (row: (typeof rows)[number]) =>
+        row.upcoming ? 0 : row.attention === 'reached' ? 1 : row.attention === 'unconfigured' ? 2 : 3;
+      const difference = priority(left) - priority(right);
+      if (difference) return difference;
+      if (left.upcoming && right.upcoming && left.nextDueDate && right.nextDueDate) {
+        return left.nextDueDate.localeCompare(right.nextDueDate);
+      }
+      return right.createdAt.getTime() - left.createdAt.getTime();
+    });
+    const active = spas.filter((spa) => spa.status === 'ACTIVE').length;
+    return {
+      registered: { total: spas.length, active, inactive: spas.length - active },
+      activeAccess: active,
+      upcomingDue: rows.filter((spa) => spa.upcoming).length,
+      reservationsThisMonth,
+      attention: {
+        dueReached: rows.filter((spa) => spa.attention === 'reached').length,
+        unconfigured: rows.filter((spa) => spa.attention === 'unconfigured').length,
+        total: rows.filter((spa) => spa.attention !== null).length,
+      },
+      spas: rows.slice(0, 5),
+    };
   }
   async getForPlatform(id: string) {
     const spa = await this.get(id);
