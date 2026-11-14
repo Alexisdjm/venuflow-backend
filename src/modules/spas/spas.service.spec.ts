@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common';
 import { DateTime } from 'luxon';
 import * as argon2 from 'argon2';
+import { monthlyPlanRevenue } from './spa-plan';
 import { SpasService } from './spas.service';
 
 jest.mock('argon2', () => ({ hash: jest.fn().mockResolvedValue('hash') }));
@@ -278,7 +279,7 @@ describe('SpasService', () => {
     const prisma = {
       spa: {
         findMany: jest.fn().mockResolvedValue([
-          spa('recent', null, '2026-11-10T00:00:00.000Z'),
+          { ...spa('recent', null, '2026-11-10T00:00:00.000Z'), plan: 'BASIC' },
           spa('soon', 15, '2026-01-01T00:00:00.000Z'),
           spa('passed', 10, '2026-06-01T00:00:00.000Z', 'SUSPENDED'),
         ]),
@@ -292,6 +293,7 @@ describe('SpasService', () => {
     expect(prisma.appointment.count).toHaveBeenCalledTimes(1);
     expect(summary.registered).toEqual({ total: 3, active: 2, inactive: 1 });
     expect(summary.activeAccess).toBe(2);
+    expect(summary.monthlyRevenue).toBe(120);
     expect(summary.upcomingDue).toBe(1);
     expect(summary.reservationsThisMonth).toBe(4);
     expect(summary.attention).toEqual({ dueReached: 1, unconfigured: 1, total: 2 });
@@ -299,7 +301,11 @@ describe('SpasService', () => {
     expect(summary.spas[1]).toEqual(expect.objectContaining({ status: 'SUSPENDED', attention: 'reached' }));
   });
 
-  it('publishes the remote form address only for a Plus spa', async () => {
+  it('keeps a free demo out of the monthly plan revenue', () => {
+    expect(monthlyPlanRevenue(['DEMO', 'BASIC', 'PLUS', 'DEMO'])).toBe(75);
+  });
+
+  it('publishes the remote form for Plus and Demo spas', async () => {
     const config = {
       get: (key: string) =>
         ({
@@ -312,7 +318,8 @@ describe('SpasService', () => {
         findUnique: jest
           .fn()
           .mockResolvedValueOnce({ id: 'plus', slug: 'plus-spa', plan: 'PLUS' })
-          .mockResolvedValueOnce({ id: 'basic', slug: 'basic-spa', plan: 'BASIC' }),
+          .mockResolvedValueOnce({ id: 'basic', slug: 'basic-spa', plan: 'BASIC' })
+          .mockResolvedValueOnce({ id: 'demo', slug: 'demo-spa', plan: 'DEMO' }),
       },
     };
     const service = new SpasService(prisma as never, audit as never, config as never);
@@ -322,6 +329,9 @@ describe('SpasService', () => {
     );
     await expect(service.get('basic')).resolves.toEqual(
       expect.objectContaining({ publicUrl: null }),
+    );
+    await expect(service.get('demo')).resolves.toEqual(
+      expect.objectContaining({ publicUrl: 'https://demo-spa.tryvenueflow.com' }),
     );
   });
 });

@@ -2,7 +2,7 @@
 export function includesPublicBooking(
   spa: { plan?: string | null } | null | undefined,
 ) {
-  return spa?.plan === 'PLUS';
+  return spa?.plan === 'PLUS' || spa?.plan === 'DEMO';
 }
 
 export function acceptsPublicBookings<

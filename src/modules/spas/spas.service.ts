@@ -22,6 +22,7 @@ import { DateTime } from 'luxon';
 import { Prisma } from '../../generated/prisma/client';
 import { billingSnapshot, PLATFORM_TIMEZONE } from './billing-due';
 import { includesPublicBooking } from '../public-booking/public-booking-policy';
+import { monthlyPlanRevenue } from './spa-plan';
 import {
   DEFAULT_SERVICE_CATEGORIES,
   normalizeCategoryName,
@@ -127,6 +128,7 @@ export class SpasService {
     return {
       registered: { total: spas.length, active, inactive: spas.length - active },
       activeAccess: active,
+      monthlyRevenue: monthlyPlanRevenue(spas.map((spa) => spa.plan)),
       upcomingDue: rows.filter((spa) => spa.upcoming).length,
       reservationsThisMonth,
       attention: {

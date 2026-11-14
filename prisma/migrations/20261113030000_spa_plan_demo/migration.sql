@@ -1,0 +1,1 @@
+ALTER TYPE "SpaPlan" ADD VALUE 'DEMO';

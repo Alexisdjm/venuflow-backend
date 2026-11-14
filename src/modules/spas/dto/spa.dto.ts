@@ -30,7 +30,7 @@ class PublicSpaSlugConstraint implements ValidatorConstraintInterface {
 }
 
 export const SPA_CURRENCIES = ['USD', 'USDT', 'EUR', 'VES'] as const;
-export const SPA_PLANS = ['BASIC', 'PLUS'] as const;
+export const SPA_PLANS = ['BASIC', 'PLUS', 'DEMO'] as const;
 
 export class CreateSpaDto {
   @ApiProperty() @IsString() @MinLength(2) @MaxLength(120) name!: string;
