@@ -9,6 +9,7 @@ import {
   IsUrl,
   Matches,
   Min,
+  MaxLength,
   MinLength,
   validateSync,
 } from 'class-validator';
@@ -74,6 +75,11 @@ class EnvironmentVariables {
   @IsOptional()
   @Matches(/^\d{1,5}$/)
   PUBLIC_BOOKING_PORT?: string;
+  @Transform(({ value }) => blankToUndefined(value))
+  @IsOptional()
+  @IsString()
+  @MaxLength(240)
+  PAYMENT_PROOF_DIR?: string;
 }
 
 function blankToUndefined(value: unknown) {

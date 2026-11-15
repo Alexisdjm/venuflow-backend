@@ -47,6 +47,11 @@ export class PublicBookingController {
     }));
   }
 
+  @Get(':slug/booking-policy')
+  bookingPolicy(@Param('slug') slug: string) {
+    return this.catalog.bookingPolicy(slug);
+  }
+
   @Get(':slug')
   spa(@Param('slug') slug: string) {
     return this.catalog.spa(slug);

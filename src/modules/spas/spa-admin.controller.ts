@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   ParseUUIDPipe,
@@ -20,6 +21,12 @@ import { UsersService } from '../users/users.service';
 import { ProfessionalsService } from '../professionals/professionals.service';
 import { ServicesService } from '../services/services.service';
 import { SpasService } from './spas.service';
+import { BookingPaymentsService } from './booking-payments.service';
+import {
+  CreatePaymentMethodDto,
+  UpdateBookingPaymentsDto,
+  UpdatePaymentMethodDto,
+} from './dto/booking-payments.dto';
 import { UpdateOperatingHoursDto } from './dto/operating-hours.dto';
 import {
   CreateProfessionalDto,
@@ -38,6 +45,7 @@ export class SpaAdminController {
     private readonly professionals: ProfessionalsService,
     private readonly services: ServicesService,
     private readonly spas: SpasService,
+    private readonly payments: BookingPaymentsService,
   ) {}
   private tenant(u: AuthUser) {
     if (!u.spaId) throw new Error('Missing tenant');
@@ -47,6 +55,34 @@ export class SpaAdminController {
   @Roles('SPA_ADMIN', 'PROFESSIONAL')
   getSpa(@CurrentUser() u: AuthUser) {
     return this.spas.get(this.tenant(u));
+  }
+  @Get('settings/booking-payments') bookingPayments(@CurrentUser() u: AuthUser) {
+    return this.payments.get(this.tenant(u));
+  }
+  @Patch('settings/booking-payments') updateBookingPayments(
+    @CurrentUser() u: AuthUser,
+    @Body() dto: UpdateBookingPaymentsDto,
+  ) {
+    return this.payments.updatePolicy(u.sub, this.tenant(u), dto);
+  }
+  @Post('settings/payment-methods') createPaymentMethod(
+    @CurrentUser() u: AuthUser,
+    @Body() dto: CreatePaymentMethodDto,
+  ) {
+    return this.payments.createMethod(u.sub, this.tenant(u), dto);
+  }
+  @Patch('settings/payment-methods/:id') updatePaymentMethod(
+    @CurrentUser() u: AuthUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: UpdatePaymentMethodDto,
+  ) {
+    return this.payments.updateMethod(u.sub, this.tenant(u), id, dto);
+  }
+  @Delete('settings/payment-methods/:id') deletePaymentMethod(
+    @CurrentUser() u: AuthUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.payments.deleteMethod(u.sub, this.tenant(u), id);
   }
   @Patch('settings/operating-hours') updateOperatingHours(
     @CurrentUser() u: AuthUser,

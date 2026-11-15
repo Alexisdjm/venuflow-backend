@@ -130,4 +130,34 @@ describe('AvailabilityService', () => {
       isGracePeriod: true,
     });
   });
+
+  it('hides a slot held by a payment that is still under review', async () => {
+    const prisma = {
+      spa: { findUniqueOrThrow: jest.fn().mockResolvedValue({ timezone: 'America/Caracas' }) },
+      spaService: { findUnique: jest.fn().mockResolvedValue({ id: 'service', isActive: true, durationMinutes: 30 }) },
+      professionalService: {
+        findMany: jest.fn().mockResolvedValue([
+          { professional: { id: 'professional', schedules: [{ startMinute: 540, endMinute: 600 }] } },
+        ]),
+      },
+      appointment: { findMany: jest.fn().mockResolvedValue([]) },
+      bookingRequest: {
+        updateMany: jest.fn().mockResolvedValue({ count: 0 }),
+        findMany: jest.fn().mockResolvedValue([
+          {
+            professionalId: 'professional',
+            startAt: new Date('2099-10-20T13:00:00.000Z'),
+            endAt: new Date('2099-10-20T13:30:00.000Z'),
+            segments: null,
+          },
+        ]),
+      },
+    };
+    const result = await new AvailabilityService(prisma as never, new SchedulingService(prisma as never)).get('spa', {
+      date: '2099-10-20',
+      serviceId: 'service',
+      intervalMinutes: 15,
+    });
+    expect(result.data.map((slot) => slot.start)).toEqual(['2099-10-20T13:30:00.000Z']);
+  });
 });

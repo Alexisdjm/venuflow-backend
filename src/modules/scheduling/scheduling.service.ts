@@ -2,10 +2,12 @@ import {
   BadRequestException,
   ConflictException,
   Injectable,
+  Optional,
 } from '@nestjs/common';
 import { DateTime } from 'luxon';
 import { PrismaService } from '../../database/prisma/prisma.service';
 import type { Prisma } from '../../generated/prisma/client';
+import { BookingPaymentMaintenance } from './booking-payment-maintenance';
 
 export const blockingStatus = { not: 'CANCELLED' as const };
 
@@ -36,7 +38,10 @@ type ParsedSlot = {
 
 @Injectable()
 export class SchedulingService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Optional() private readonly holds?: BookingPaymentMaintenance,
+  ) {}
 
   dashboardSlot(
     spa: SpaWindow,
@@ -176,6 +181,62 @@ export class SchedulingService {
       select: { professionalId: true, startAt: true, endAt: true },
     });
   }
+
+  async paymentHolds(
+    spaId: string,
+    from: Date,
+    until: Date,
+    client: Prisma.TransactionClient = this.prisma,
+    excludeRequestId?: string,
+  ) {
+    const requests = client.bookingRequest;
+    if (!requests?.findMany) return [];
+    if (client === this.prisma && this.holds) {
+      await this.holds.release(spaId);
+    } else if (requests.updateMany) {
+      await requests.updateMany({
+        where: { spaId, status: 'AWAITING_PAYMENT', expiresAt: { lte: new Date() } },
+        data: { status: 'EXPIRED' },
+      });
+    }
+    const rows = await requests.findMany({
+      where: {
+        spaId,
+        status: 'AWAITING_PAYMENT',
+        expiresAt: { gt: new Date() },
+        startAt: { lt: until },
+        endAt: { gt: from },
+        ...(excludeRequestId ? { id: { not: excludeRequestId } } : {}),
+      },
+      select: { professionalId: true, startAt: true, endAt: true, segments: true },
+    });
+    return rows.flatMap((row) => paymentHoldIntervals(row)).filter((interval) =>
+      rangesOverlap(interval.startAt, interval.endAt, from, until),
+    );
+  }
+}
+
+export function paymentHoldIntervals(row: {
+  professionalId: string | null;
+  startAt: Date;
+  endAt: Date;
+  segments: Prisma.JsonValue | null;
+}) {
+  if (Array.isArray(row.segments)) {
+    const segments = row.segments.flatMap((item) => {
+      if (!item || typeof item !== 'object' || Array.isArray(item)) return [];
+      const segment = item as Record<string, unknown>;
+      if (typeof segment.professionalId !== 'string' || !segment.professionalId) return [];
+      if (typeof segment.start !== 'string' || typeof segment.end !== 'string') return [];
+      const startAt = new Date(segment.start);
+      const endAt = new Date(segment.end);
+      if (Number.isNaN(startAt.getTime()) || Number.isNaN(endAt.getTime())) return [];
+      return [{ professionalId: segment.professionalId, startAt, endAt }];
+    });
+    if (segments.length) return segments;
+  }
+  if (!row.professionalId) return [];
+  return [{ professionalId: row.professionalId, startAt: row.startAt, endAt: row.endAt }];
 }
 
 export function alreadyStarted(start: DateTime, now = DateTime.utc()) {

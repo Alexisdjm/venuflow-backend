@@ -44,6 +44,24 @@ enum PaymentMethod {
   ZELLE
   BINANCE
 }
+enum RemoteDepositMode {
+  NONE
+  PERCENT
+  FIXED
+}
+enum ProfessionalPayoutCadence {
+  NONE
+  WEEKLY
+  BIWEEKLY
+  MONTHLY
+}
+enum RemotePaymentMethod {
+  PAGO_MOVIL
+  ZELLE
+  BINANCE
+  PAYPAL
+  TRANSFER
+}
 
 model Spa {
   id        String     @id @default(uuid()) @db.Uuid
@@ -57,6 +75,12 @@ model Spa {
   closingMinute Int     @default(1080)
   walkInGraceMinutes Int @default(5)
   billingDueDay Int?
+  remoteDepositMode RemoteDepositMode @default(NONE)
+  remoteDepositValue Decimal? @db.Decimal(10, 2)
+  remoteDepositCurrency String? @db.VarChar(4)
+  paymentReviewHoldMinutes Int @default(240)
+  professionalPayoutCadence ProfessionalPayoutCadence @default(NONE)
+  paymentMethods SpaPaymentMethod[]
   users     User[]
   professionals Professional[]
   services  SpaService[]
@@ -68,6 +92,24 @@ model Spa {
   bookingRequests BookingRequest[]
   createdAt DateTime   @default(now())
   updatedAt DateTime   @updatedAt
+}
+
+model SpaPaymentMethod {
+  id            String              @id @default(uuid()) @db.Uuid
+  spaId         String              @db.Uuid
+  spa           Spa                 @relation(fields: [spaId], references: [id], onDelete: Restrict)
+  type          RemotePaymentMethod
+  label         String              @db.VarChar(80)
+  details       Json
+  requiresProof Boolean             @default(true)
+  isActive      Boolean             @default(true)
+  sortOrder     Int                 @default(0)
+  bookingRequests BookingRequest[]
+  createdAt     DateTime            @default(now())
+  updatedAt     DateTime            @updatedAt
+
+  @@unique([spaId, label])
+  @@index([spaId, sortOrder])
 }
 
 model User {
@@ -279,7 +321,9 @@ model Customer {
 
 enum BookingRequestStatus {
   PENDING
+  AWAITING_PAYMENT
   CONFIRMED
+  REJECTED
   CANCELLED
   EXPIRED
 }
@@ -311,11 +355,27 @@ model BookingRequest {
   expiresAt         DateTime
   resendAvailableAt DateTime             @default(now())
   idempotencyKey    String?
+  paymentMethodId   String?              @db.Uuid
+  paymentMethod     SpaPaymentMethod?    @relation(fields: [paymentMethodId], references: [id], onDelete: SetNull)
+  paymentMethodLabel String?             @db.VarChar(80)
+  depositAmount     Decimal?             @db.Decimal(10, 2)
+  depositCurrency   String?              @db.VarChar(4)
+  depositVesAmount  Decimal?             @db.Decimal(14, 2)
+  exchangeRate      Decimal?             @db.Decimal(18, 8)
+  exchangeSource    String?              @db.VarChar(16)
+  exchangeQuotedAt  DateTime?
+  paymentReference  String?              @db.VarChar(80)
+  paymentProofPath  String?              @db.VarChar(240)
+  paymentProofMime  String?              @db.VarChar(40)
+  paymentProofBytes Int?
+  paymentSubmittedAt DateTime?
   createdAt         DateTime             @default(now())
   updatedAt         DateTime             @updatedAt
 
   @@unique([id, spaId])
   @@unique([appointmentId, spaId])
   @@index([spaId, status])
+  @@index([spaId, status, expiresAt])
+  @@index([paymentMethodId])
   @@index([customerId])
 }

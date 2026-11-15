@@ -5,6 +5,7 @@ import {
   IsArray,
   IsBoolean,
   IsEmail,
+  IsIn,
   IsISO8601,
   IsOptional,
   IsString,
@@ -33,6 +34,30 @@ export class PublicCustomerDto {
   @MinLength(7, { message: 'Usa un teléfono válido.' })
   @MaxLength(40)
   phone!: string;
+}
+
+export class PublicPaymentProofDto {
+  @IsIn(['image/jpeg', 'image/png', 'image/webp'], { message: 'La captura debe ser JPG, PNG o WebP.' })
+  mime!: 'image/jpeg' | 'image/png' | 'image/webp';
+
+  @IsString()
+  @MaxLength(2_100_000, { message: 'La captura es demasiado grande.' })
+  data!: string;
+}
+
+export class PublicPaymentDto {
+  @IsUUID('4', { message: 'Elige un método de pago.' })
+  methodId!: string;
+
+  @IsString()
+  @MinLength(4, { message: 'La referencia debe tener entre 4 y 40 caracteres.' })
+  @MaxLength(40, { message: 'La referencia debe tener entre 4 y 40 caracteres.' })
+  reference!: string;
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => PublicPaymentProofDto)
+  proof?: PublicPaymentProofDto;
 }
 
 export class CreatePublicBookingDto {
@@ -68,4 +93,9 @@ export class CreatePublicBookingDto {
   @ValidateNested()
   @Type(() => PublicCustomerDto)
   customer!: PublicCustomerDto;
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => PublicPaymentDto)
+  payment?: PublicPaymentDto;
 }

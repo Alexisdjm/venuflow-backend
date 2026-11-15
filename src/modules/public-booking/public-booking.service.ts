@@ -9,6 +9,7 @@ import {
   acceptsPublicBookings,
   publicServiceEligibility,
 } from './public-booking-policy';
+import { BookingPaymentsService } from '../spas/booking-payments.service';
 import { AvailabilityService } from '../availability/availability.service';
 import { effectiveCommissionRate } from '../services/extra-commission';
 import { PrismaService } from '../../database/prisma/prisma.service';
@@ -53,6 +54,7 @@ export class PublicBookingService {
     private readonly prisma: PrismaService,
     private readonly availabilityService: AvailabilityService,
     private readonly scheduling: SchedulingService,
+    private readonly payments: BookingPaymentsService,
   ) {}
 
   async spa(slug: string) {
@@ -64,6 +66,11 @@ export class PublicBookingService {
       timezone: spa.timezone,
       currency: spa.currency,
     };
+  }
+
+  async bookingPolicy(slug: string) {
+    const spa = await this.findSpa(slug);
+    return this.payments.publicPolicy(spa);
   }
 
   async services(slug: string) {
@@ -321,11 +328,12 @@ export class PublicBookingService {
       },
       orderBy: { professional: { displayName: 'asc' } },
     });
-    const appointments = await this.scheduling.busyBetween({
-      spaId: spa.id,
-      from: localDate.toUTC().toJSDate(),
-      until: localDate.plus({ days: 1 }).toUTC().toJSDate(),
-    });
+    const from = localDate.toUTC().toJSDate();
+    const until = localDate.plus({ days: 1 }).toUTC().toJSDate();
+    const appointments = [
+      ...(await this.scheduling.busyBetween({ spaId: spa.id, from, until })),
+      ...(await this.scheduling.paymentHolds(spa.id, from, until)),
+    ];
     const total = items.reduce((sum, item) => sum + item.durationMinutes, 0);
     const starts = onlyStart
       ? [DateTime.fromISO(onlyStart, { setZone: true }).setZone(spa.timezone)]

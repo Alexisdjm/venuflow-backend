@@ -1,7 +1,9 @@
-import { Body, Controller, Get, Headers, Param, Post } from '@nestjs/common';
+import { Body, Controller, Get, Headers, Param, Post, Query } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import { CreatePublicBookingDto } from './dto/create-public-booking.dto';
+import { ExchangeQuoteQueryDto } from './dto/exchange-quote.dto';
+import { ExchangeRateService } from './exchange-rate.service';
 import { PublicBookingRequestsService } from './public-booking-requests.service';
 
 const publicRead = { default: { limit: 60, ttl: 60_000 } };
@@ -10,7 +12,16 @@ const publicWrite = { default: { limit: 10, ttl: 60_000 } };
 @ApiTags('Public booking')
 @Controller('public')
 export class PublicBookingRequestsController {
-  constructor(private readonly requests: PublicBookingRequestsService) {}
+  constructor(
+    private readonly requests: PublicBookingRequestsService,
+    private readonly rates: ExchangeRateService,
+  ) {}
+
+  @Throttle(publicRead)
+  @Get('exchange-quote')
+  exchangeQuote(@Query() query: ExchangeQuoteQueryDto) {
+    return this.rates.quote(query);
+  }
 
   @Throttle(publicWrite)
   @Post('booking-requests')

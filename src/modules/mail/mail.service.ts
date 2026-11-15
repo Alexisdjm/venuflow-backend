@@ -17,6 +17,7 @@ export type BookingMail = {
   verificationUrl?: string;
   reference?: string;
   previousWhen?: string;
+  deposit?: string;
 };
 
 @Injectable()
@@ -56,6 +57,77 @@ export class MailService {
         when: message.when,
         reference: message.reference ?? 'Revisa el nuevo horario.',
         verificationUrl: message.verificationUrl ?? '',
+      }),
+    );
+  }
+
+  sendBookingPaymentReceived(message: BookingMail) {
+    return this.send(
+      message.to,
+      message.customerName,
+      'Recibimos tu pago en VenueFlow',
+      'No se pudo enviar el acuse del pago',
+      renderMailTemplate('booking-payment-received.html', {
+        customerName: message.customerName,
+        spaName: message.spaName,
+        serviceName: message.serviceName,
+        professionalName: message.professionalName,
+        when: message.when,
+        deposit: message.deposit ?? '',
+        reference: message.reference ?? '',
+        expiresAt: message.expiresAt ?? '',
+      }),
+    );
+  }
+
+  sendBookingConfirmed(message: BookingMail) {
+    return this.send(
+      message.to,
+      message.customerName,
+      'Tu reserva en VenueFlow está confirmada',
+      'No se pudo enviar el correo de confirmación',
+      renderMailTemplate('booking-confirmed.html', {
+        customerName: message.customerName,
+        spaName: message.spaName,
+        serviceName: message.serviceName,
+        professionalName: message.professionalName,
+        when: message.when,
+        reference: message.reference ?? '',
+        verificationUrl: message.verificationUrl ?? '',
+      }),
+    );
+  }
+
+  sendBookingPaymentExpired(message: BookingMail) {
+    return this.send(
+      message.to,
+      message.customerName,
+      'Tu horario en VenueFlow quedó libre',
+      'No se pudo enviar el aviso de vencimiento',
+      renderMailTemplate('booking-payment-expired.html', {
+        customerName: message.customerName,
+        spaName: message.spaName,
+        serviceName: message.serviceName,
+        professionalName: message.professionalName,
+        when: message.when,
+        reference: message.reference ?? 'El tiempo de revisión terminó y el horario quedó libre.',
+      }),
+    );
+  }
+
+  sendBookingPaymentRejected(message: BookingMail) {
+    return this.send(
+      message.to,
+      message.customerName,
+      'No pudimos validar tu pago en VenueFlow',
+      'No se pudo enviar el correo de rechazo',
+      renderMailTemplate('booking-payment-rejected.html', {
+        customerName: message.customerName,
+        spaName: message.spaName,
+        serviceName: message.serviceName,
+        professionalName: message.professionalName,
+        when: message.when,
+        reference: message.reference ?? 'No pudimos validar el pago.',
       }),
     );
   }

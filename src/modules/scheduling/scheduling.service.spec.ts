@@ -2,6 +2,7 @@ import { BadRequestException, ConflictException } from '@nestjs/common';
 import { DateTime } from 'luxon';
 import {
   SchedulingService,
+  paymentHoldIntervals,
   professionalBusy,
   publicStartMinutes,
   rangesOverlap,
@@ -73,6 +74,35 @@ describe('SchedulingService', () => {
         professionalId: 'pro',
       }),
     });
+  });
+
+  it('ignores the request being approved when it collects other holds', async () => {
+    const findMany = jest.fn().mockResolvedValue([]);
+    const updateMany = jest.fn().mockResolvedValue({ count: 0 });
+    const local = new SchedulingService({
+      bookingRequest: { findMany, updateMany },
+    } as never);
+    const start = new Date('2099-10-20T10:00:00.000Z');
+    const end = new Date('2099-10-20T11:00:00.000Z');
+
+    await local.paymentHolds('spa', start, end, undefined, 'request-1');
+
+    expect(findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ id: { not: 'request-1' } }),
+      }),
+    );
+  });
+
+  it('holds each professional named in a payment request', () => {
+    const start = new Date('2099-10-20T10:00:00.000Z');
+    const end = new Date('2099-10-20T11:00:00.000Z');
+    expect(paymentHoldIntervals({
+      professionalId: null,
+      startAt: start,
+      endAt: end,
+      segments: [{ professionalId: 'ana', start: start.toISOString(), end: end.toISOString() }],
+    })).toEqual([{ professionalId: 'ana', startAt: start, endAt: end }]);
   });
 
   it('detects an in-memory overlap for the same professional', () => {

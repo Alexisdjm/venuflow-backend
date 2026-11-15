@@ -61,11 +61,12 @@ export class AvailabilityService {
       },
     });
     const dayEnd = localDate.plus({ days: 1 });
-    const appointments = await this.scheduling.busyBetween({
-      spaId,
-      from: localDate.toUTC().toJSDate(),
-      until: dayEnd.toUTC().toJSDate(),
-    });
+    const from = localDate.toUTC().toJSDate();
+    const until = dayEnd.toUTC().toJSDate();
+    const appointments = [
+      ...(await this.scheduling.busyBetween({ spaId, from, until })),
+      ...(await this.scheduling.paymentHolds(spaId, from, until)),
+    ];
     const data = assignments.flatMap(({ professional }) =>
       professional.schedules.flatMap((schedule) => {
         const slots = [];

@@ -16,6 +16,7 @@ import { PrismaService } from '../../src/database/prisma/prisma.service';
 import { AuditService } from '../../src/modules/audit/audit.service';
 import { MailService } from '../../src/modules/mail/mail.service';
 import { PublicBookingRequestsService } from '../../src/modules/public-booking/public-booking-requests.service';
+import { BookingPaymentMaintenance } from '../../src/modules/scheduling/booking-payment-maintenance';
 import { bookingTokenHash } from '../../src/modules/public-booking/booking-tokens';
 import { Prisma } from '../../src/generated/prisma/client';
 
@@ -34,6 +35,10 @@ describe('Block A public booking security (real PostgreSQL)', () => {
     sendBookingVerification: jest.fn().mockResolvedValue(undefined),
     sendBookingCancellation: jest.fn().mockResolvedValue(undefined),
     sendBookingUpdate: jest.fn().mockResolvedValue(undefined),
+    sendBookingPaymentReceived: jest.fn().mockResolvedValue(undefined),
+    sendBookingPaymentExpired: jest.fn().mockResolvedValue(undefined),
+    sendBookingConfirmed: jest.fn().mockResolvedValue(undefined),
+    sendBookingPaymentRejected: jest.fn().mockResolvedValue(undefined),
   };
   const customer = {
     name: 'Guest Example',
@@ -151,6 +156,7 @@ describe('Block A public booking security (real PostgreSQL)', () => {
       // Only fixtures owned by this suite; no truncate, reset or shared-data deletion.
       await db.appointment.deleteMany({ where });
       await db.bookingRequest.deleteMany({ where });
+      await db.spaPaymentMethod.deleteMany({ where });
       await db.customer.deleteMany({ where });
       await db.auditLog.deleteMany({ where });
       await db.professionalSchedule.deleteMany({ where });
@@ -1523,5 +1529,50 @@ describe('Block A public booking security (real PostgreSQL)', () => {
         clock.mockRestore();
       }
     });
+  });
+
+  it('keeps a deposit request out of the calendar until the spa approves it', async () => {
+    const method = await db.spaPaymentMethod.create({
+      data: {
+        spaId,
+        type: 'PAGO_MOVIL',
+        label: 'Pago móvil',
+        details: {
+          phone: '04141234567',
+          nationalId: '12345678',
+          bank: '0134 - Banesco',
+        },
+        requiresProof: false,
+      },
+    });
+    await db.spa.update({
+      where: { id: spaId },
+      data: { remoteDepositMode: 'PERCENT', remoteDepositValue: new Prisma.Decimal(50) },
+    });
+
+    const created = await api.create({
+      spaSlug: slug,
+      serviceIds: [serviceId],
+      professionalId,
+      start,
+      customer,
+      payment: { methodId: method.id, reference: '123456' },
+    });
+
+    expect(created.status).toBe('AWAITING_PAYMENT');
+    expect(await db.appointment.count({ where: { spaId } })).toBe(0);
+    expect(mail.sendBookingPaymentReceived).toHaveBeenCalledTimes(1);
+    expect(mail.sendBookingVerification).not.toHaveBeenCalled();
+
+    await db.bookingRequest.update({
+      where: { id: created.requestId },
+      data: { expiresAt: new Date(Date.now() - 1000) },
+    });
+    await app.get(BookingPaymentMaintenance).release(spaId);
+    const expired = await db.bookingRequest.findUniqueOrThrow({ where: { id: created.requestId } });
+    expect(expired.status).toBe('EXPIRED');
+    expect(mail.sendBookingPaymentExpired).toHaveBeenCalledTimes(1);
+    await app.get(BookingPaymentMaintenance).release(spaId);
+    expect(mail.sendBookingPaymentExpired).toHaveBeenCalledTimes(1);
   });
 });

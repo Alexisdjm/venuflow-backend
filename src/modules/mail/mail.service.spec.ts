@@ -82,6 +82,28 @@ describe('MailService', () => {
     expect(body.htmlContent).toContain('https://reservas.example/booking/verify?token=abc');
   });
 
+  it('sends the confirmation with the booking code after a payment is approved', async () => {
+    const fetchMock = jest
+      .spyOn(global, 'fetch')
+      .mockResolvedValue(new Response(null, { status: 201 }));
+    const service = new MailService(config());
+
+    await service.sendBookingConfirmed({
+      ...message,
+      reference: 'Código VF-ABC12345.',
+      verificationUrl: 'https://form.example/emi-nails/booking/confirmation?token=abc',
+    });
+
+    const body = JSON.parse(String(fetchMock.mock.calls[0][1]?.body)) as {
+      subject: string;
+      htmlContent: string;
+    };
+    expect(body.subject).toBe('Tu reserva en VenueFlow está confirmada');
+    expect(body.htmlContent).toContain('Reserva confirmada');
+    expect(body.htmlContent).toContain('VF-ABC12345');
+    expect(body.htmlContent).toContain('https://form.example/emi-nails/booking/confirmation?token=abc');
+  });
+
   it('limits Brevo to one attempt and a 10 second timeout', async () => {
     const fetchMock = jest
       .spyOn(global, 'fetch')

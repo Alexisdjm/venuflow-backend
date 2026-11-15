@@ -32,8 +32,15 @@ import {
   PublicBookingService,
   type PublicSequenceSegment,
 } from './public-booking.service';
-import { SchedulingService } from '../scheduling/scheduling.service';
+import { rangesOverlap, SchedulingService } from '../scheduling/scheduling.service';
 import { effectiveCommissionRate } from '../services/extra-commission';
+import {
+  depositQuote,
+  parsePaymentReference,
+} from '../spas/booking-payments';
+import { decodePaymentProof } from './payment-proof';
+import { PaymentProofStore } from './payment-proof.store';
+import { ExchangeRateService } from './exchange-rate.service';
 
 const REQUEST_MINUTES = 15;
 const RESEND_SECONDS = 60;
@@ -58,6 +65,15 @@ const requestInclude = {
   },
 } satisfies Prisma.BookingRequestInclude;
 
+const reviewInclude = {
+  service: { select: { name: true } },
+  paymentMethod: { select: { type: true } },
+} satisfies Prisma.BookingRequestInclude;
+
+type ReviewRecord = Prisma.BookingRequestGetPayload<{
+  include: typeof reviewInclude;
+}>;
+
 type BookingRecord = Prisma.BookingRequestGetPayload<{
   include: typeof requestInclude;
 }>;
@@ -71,6 +87,8 @@ export class PublicBookingRequestsService {
     private readonly audit: AuditService,
     private readonly catalog: PublicBookingService,
     private readonly scheduling: SchedulingService,
+    private readonly proofs: PaymentProofStore,
+    private readonly rates: ExchangeRateService,
   ) {}
 
   async create(dto: CreatePublicBookingDto) {
@@ -106,6 +124,7 @@ export class PublicBookingRequestsService {
     );
     if (!available)
       throw new ConflictException('El horario ya no está disponible.');
+    const payment = await this.paymentIntent(spa, dto, service.price);
     const email = dto.customer.email.trim().toLowerCase();
     await this.assertCreateQuota(spa.id, email);
     const nationalId = dto.customer.nationalId;
@@ -116,7 +135,7 @@ export class PublicBookingRequestsService {
       data: {
         spaId: spa.id,
         serviceId: service.id,
-        professionalId: professionalId ?? null,
+        professionalId: payment ? available.id : (professionalId ?? null),
         id,
         token: bookingTokenHash(token, 'verification'),
         tokenVersion: 1,
@@ -131,8 +150,8 @@ export class PublicBookingRequestsService {
             serviceId: service.id,
             serviceName: service.name,
             categoryId: service.categoryId,
-            professionalId: professionalId ?? '',
-            professionalName: '',
+            professionalId: payment ? available.id : (professionalId ?? ''),
+            professionalName: payment ? available.displayName : '',
             commissionRate: effectiveCommissionRate(
               available.commissionRate,
               service,
@@ -145,23 +164,13 @@ export class PublicBookingRequestsService {
             end: slot.end.toUTC().toISO()!,
           },
         ],
-        expiresAt: new Date(now.getTime() + REQUEST_MINUTES * 60_000),
+        expiresAt: new Date(now.getTime() + (payment ? payment.holdMinutes : REQUEST_MINUTES) * 60_000),
         resendAvailableAt: new Date(now.getTime() + RESEND_SECONDS * 1000),
+        ...this.paymentData(payment, now),
       },
       include: requestInclude,
     });
-    try {
-      await this.mail.sendBookingVerification(
-        await this.mailFor(request, token),
-      );
-    } catch (error) {
-      await this.prisma.bookingRequest.delete({ where: { id: request.id } });
-      throw error;
-    }
-    return {
-      requestId: `${request.id}.${this.tokenFor(request.id, 'resend')}`,
-      expiresAt: request.expiresAt.toISOString(),
-    };
+    return this.deliver(request, token, payment);
   }
 
   async resend(capability: string) {
@@ -261,108 +270,18 @@ export class PublicBookingRequestsService {
             where: { id: current.id },
             include: requestInclude,
           });
-          await this.assertConfirmable(fresh, tx);
-          const segments = readSegments(fresh.segments);
-          for (const id of [
-            ...new Set(segments.map((s) => s.serviceId)),
-          ].sort()) {
-            await tx.$queryRaw`SELECT "id" FROM "SpaService" WHERE "id" = ${id}::uuid AND "spaId" = ${fresh.spaId}::uuid FOR SHARE`;
-          }
-          await this.assertConfirmable(fresh, tx);
-          const customer = await this.verifiedCustomer(fresh, tx);
-          const serviceExtras = new Map(
-            (
-              await tx.spaService.findMany({
-                where: {
-                  spaId: fresh.spaId,
-                  id: { in: [...new Set(segments.map((segment) => segment.serviceId))] },
-                },
-                select: {
-                  id: true,
-                  extraCommission: true,
-                  extraCommissionRate: true,
-                },
-              })
-            ).map((service) => [service.id, service]),
-          );
-          let firstId = '';
-          const professionalIds: string[] = [];
-          for (const [index, segment] of segments.entries()) {
-            const slot = this.slot(
-              fresh.spa,
-              segment.start,
-              segment.durationMinutes,
-              index > 0,
-            );
-            const requested =
-              segments.length === 1
-                ? (fresh.professionalId ?? undefined)
-                : segment.professionalId;
-            const chosen = await this.firstAvailable(
-              fresh.spaId,
-              segment.serviceId,
-              slot,
-              requested,
-              tx,
-            );
-            if (!chosen)
-              throw new ConflictException('El horario ya no esta disponible.');
-            const appointmentDate = new Date(
-              `${slot.local.toISODate()}T00:00:00.000Z`,
-            );
-            if (
-              await this.scheduling.categoryTaken(
-                {
-                  spaId: fresh.spaId,
-                  customerId: customer.id,
-                  appointmentDate,
-                  categoryId: segment.categoryId,
-                },
-                tx,
-              )
-            ) {
-              throw new ConflictException(
-                'Ya existe una reserva de esta categoria para ese dia.',
-              );
-            }
-            const appointment = await tx.appointment.create({
-              data: {
-                spaId: fresh.spaId,
-                professionalId: chosen.id,
-                serviceId: segment.serviceId,
-                customerId: customer.id,
-                customerName: fresh.submittedName,
-                customerPhone: fresh.submittedPhone,
-                customerNationalId: fresh.nationalId,
-                customerEmail: fresh.email,
-                startAt: slot.start.toUTC().toJSDate(),
-                endAt: slot.end.toUTC().toJSDate(),
-                appointmentDate,
-                serviceCategoryId: segment.categoryId,
-                servicePrice: new Prisma.Decimal(segment.price),
-                commissionRate: effectiveCommissionRate(
-                  chosen.commissionRate,
-                  serviceExtras.get(segment.serviceId),
-                ),
-                isWalkIn: false,
-                createdById: null,
-                ...(segments.length > 1
-                  ? { visitRequestId: fresh.id, visitGroupId: fresh.id }
-                  : {}),
-              },
-            });
-            if (!firstId) firstId = appointment.id;
-            professionalIds.push(chosen.id);
-          }
+          const placed = await this.book(fresh, tx);
           const receiptToken = this.receiptToken(fresh);
           const saved = await tx.bookingRequest.update({
             where: { id: fresh.id },
             data: {
               status: 'CONFIRMED',
-              customerId: customer.id,
-              appointmentId: firstId,
+              customerId: placed.customer.id,
+              appointmentId: placed.firstId,
               professionalId:
-                new Set(professionalIds).size === 1 ? professionalIds[0] : null,
+                new Set(placed.professionalIds).size === 1
+                  ? placed.professionalIds[0]
+                  : null,
               receiptToken:
                 fresh.tokenVersion === 1
                   ? bookingTokenHash(receiptToken, 'receipt')
@@ -488,8 +407,206 @@ export class PublicBookingRequestsService {
     return { status: 'CANCELLED' as const };
   }
 
+  async reviewQueue(spaId: string, page: number, limit: number) {
+    await this.expirePaymentHolds(spaId);
+    const where = {
+      spaId,
+      status: 'AWAITING_PAYMENT' as const,
+      expiresAt: { gt: new Date() },
+    };
+    const [rows, total] = await this.prisma.$transaction([
+      this.prisma.bookingRequest.findMany({
+        where,
+        include: reviewInclude,
+        orderBy: [{ paymentSubmittedAt: 'asc' }, { createdAt: 'asc' }],
+        skip: (page - 1) * limit,
+        take: limit,
+      }),
+      this.prisma.bookingRequest.count({ where }),
+    ]);
+    return {
+      data: rows.map((row) => this.presentReview(row)),
+      meta: { page, limit, total },
+    };
+  }
+
+  async reviewCount(spaId: string) {
+    await this.expirePaymentHolds(spaId);
+    const pending = await this.prisma.bookingRequest.count({
+      where: {
+        spaId,
+        status: 'AWAITING_PAYMENT',
+        expiresAt: { gt: new Date() },
+      },
+    });
+    return { pending };
+  }
+
+  async reviewProof(spaId: string, requestId: string) {
+    const request = await this.prisma.bookingRequest.findFirst({
+      where: { id: requestId, spaId },
+      select: { paymentProofPath: true, paymentProofMime: true },
+    });
+    if (!request) throw new NotFoundException('Solicitud no encontrada');
+    if (
+      !request.paymentProofPath ||
+      !request.paymentProofPath.startsWith(`${spaId}/`) ||
+      !['image/jpeg', 'image/png', 'image/webp'].includes(
+        request.paymentProofMime ?? '',
+      )
+    ) {
+      throw new NotFoundException('Esta solicitud no tiene captura.');
+    }
+    const bytes = await this.proofs.read(request.paymentProofPath);
+    return { mime: request.paymentProofMime!, bytes };
+  }
+
+  async approvePayment(actorUserId: string, spaId: string, requestId: string) {
+    let result: { saved: BookingRecord; created: boolean };
+    try {
+      result = await this.prisma.$transaction(
+        async (tx) => {
+          await tx.$queryRaw`SELECT "id" FROM "BookingRequest" WHERE "id" = ${requestId}::uuid AND "spaId" = ${spaId}::uuid FOR UPDATE`;
+          const current = await tx.bookingRequest.findUnique({
+            where: { id: requestId, spaId },
+            include: requestInclude,
+          });
+          if (!current) throw new NotFoundException('Solicitud no encontrada');
+          this.assertRelations(current);
+          if (
+            current.status === 'CONFIRMED' &&
+            current.appointment &&
+            current.receiptToken
+          ) {
+            return { saved: current, created: false };
+          }
+          if (current.status !== 'AWAITING_PAYMENT') {
+            throw new ConflictException(
+              'Esta solicitud ya no está pendiente de revisión.',
+            );
+          }
+          if (current.expiresAt.getTime() <= Date.now()) {
+            await tx.bookingRequest.update({
+              where: { id: current.id },
+              data: { status: 'EXPIRED' },
+            });
+            throw new GoneException(
+              'El tiempo para revisar este pago terminó y el horario quedó libre.',
+            );
+          }
+          await tx.$queryRaw`SELECT "id" FROM "Spa" WHERE "id" = ${current.spaId}::uuid FOR SHARE`;
+          const fresh = await tx.bookingRequest.findUniqueOrThrow({
+            where: { id: current.id },
+            include: requestInclude,
+          });
+          const placed = await this.book(fresh, tx, fresh.id);
+          const receiptToken = this.receiptToken(fresh);
+          const saved = await tx.bookingRequest.update({
+            where: { id: fresh.id },
+            data: {
+              status: 'CONFIRMED',
+              customerId: placed.customer.id,
+              appointmentId: placed.firstId,
+              professionalId:
+                new Set(placed.professionalIds).size === 1
+                  ? placed.professionalIds[0]
+                  : null,
+              receiptToken:
+                fresh.tokenVersion === 1
+                  ? bookingTokenHash(receiptToken, 'receipt')
+                  : receiptToken,
+            },
+            include: requestInclude,
+          });
+          return { saved, created: true };
+        },
+        { maxWait: 5000, timeout: 15000 },
+      );
+    } catch (error) {
+      throw databaseConflict(error) ?? error;
+    }
+    if (result.created) {
+      await afterCommit('payment-approve-audit', () =>
+        this.audit.record({
+          spaId: result.saved.spaId,
+          actorUserId,
+          action: 'BOOKING_PAYMENT_APPROVED',
+          entityType: 'BookingRequest',
+          entityId: result.saved.id,
+          metadata: {
+            appointmentId: result.saved.appointmentId,
+            source: 'payment-review',
+          },
+        }),
+      );
+    }
+    const emailSent = await this.sendDecision(result.saved, 'confirmed');
+    return {
+      status: 'CONFIRMED' as const,
+      appointmentId: result.saved.appointmentId,
+      bookingCode: bookingCode(result.saved.appointmentId ?? result.saved.id),
+      emailSent,
+    };
+  }
+
+  async rejectPayment(actorUserId: string, spaId: string, requestId: string) {
+    const result = await this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT "id" FROM "BookingRequest" WHERE "id" = ${requestId}::uuid AND "spaId" = ${spaId}::uuid FOR UPDATE`;
+      const current = await tx.bookingRequest.findUnique({
+        where: { id: requestId, spaId },
+        include: requestInclude,
+      });
+      if (!current) throw new NotFoundException('Solicitud no encontrada');
+      this.assertRelations(current);
+      if (current.status === 'REJECTED') return { saved: current, changed: false };
+      if (current.status !== 'AWAITING_PAYMENT') {
+        throw new ConflictException(
+          'Esta solicitud ya no está pendiente de revisión.',
+        );
+      }
+      if (current.expiresAt.getTime() <= Date.now()) {
+        await tx.bookingRequest.update({
+          where: { id: current.id },
+          data: { status: 'EXPIRED' },
+        });
+        throw new GoneException(
+          'El tiempo para revisar este pago terminó y el horario quedó libre.',
+        );
+      }
+      const saved = await tx.bookingRequest.update({
+        where: { id: current.id },
+        data: { status: 'REJECTED' },
+        include: requestInclude,
+      });
+      return { saved, changed: true };
+    });
+    if (!result.changed) return { status: 'REJECTED' as const, emailSent: true };
+    await this.clearProof(result.saved.id, result.saved.paymentProofPath);
+    await afterCommit('payment-reject-audit', () =>
+      this.audit.record({
+        spaId: result.saved.spaId,
+        actorUserId,
+        action: 'BOOKING_PAYMENT_REJECTED',
+        entityType: 'BookingRequest',
+        entityId: result.saved.id,
+        metadata: { source: 'payment-review' },
+      }),
+    );
+    const emailSent = await this.sendDecision(result.saved, 'rejected');
+    return { status: 'REJECTED' as const, emailSent };
+  }
+
   private async createSequence(
-    spa: { id: string; slug: string; timezone: string; currency: string },
+    spa: {
+      id: string;
+      slug: string;
+      timezone: string;
+      currency: string;
+      remoteDepositMode: 'NONE' | 'PERCENT' | 'FIXED';
+      remoteDepositValue: Prisma.Decimal | null;
+      remoteDepositCurrency: string | null;
+      paymentReviewHoldMinutes: number;
+    },
     dto: CreatePublicBookingDto,
   ) {
     if (
@@ -509,6 +626,11 @@ export class PublicBookingRequestsService {
     });
     const plan = plans[0];
     if (!plan) throw new ConflictException('El horario ya no está disponible.');
+    const total = plan.segments.reduce(
+      (sum, segment) => sum.plus(segment.price),
+      new Prisma.Decimal(0),
+    );
+    const payment = await this.paymentIntent(spa, dto, total);
     const email = dto.customer.email.trim().toLowerCase();
     await this.assertCreateQuota(spa.id, email);
     const nationalId = dto.customer.nationalId;
@@ -534,8 +656,9 @@ export class PublicBookingRequestsService {
         nationalId,
         startAt: new Date(plan.start),
         endAt: new Date(plan.end),
-        expiresAt: new Date(now.getTime() + REQUEST_MINUTES * 60_000),
+        expiresAt: new Date(now.getTime() + (payment ? payment.holdMinutes : REQUEST_MINUTES) * 60_000),
         resendAvailableAt: new Date(now.getTime() + RESEND_SECONDS * 1000),
+        ...this.paymentData(payment, now),
         segments: plan.segments.map((segment) => ({
           ...segment,
           currency: spa.currency,
@@ -544,18 +667,7 @@ export class PublicBookingRequestsService {
       },
       include: requestInclude,
     });
-    try {
-      await this.mail.sendBookingVerification(
-        await this.mailFor(request, token),
-      );
-    } catch (error) {
-      await this.prisma.bookingRequest.delete({ where: { id: request.id } });
-      throw error;
-    }
-    return {
-      requestId: `${request.id}.${this.tokenFor(request.id, 'resend')}`,
-      expiresAt: request.expiresAt.toISOString(),
-    };
+    return this.deliver(request, token, payment);
   }
 
   private async assertCreateQuota(spaId: string, email: string) {
@@ -587,6 +699,103 @@ export class PublicBookingRequestsService {
     return request.tokenVersion === 1
       ? this.tokenFor(request.id, 'receipt')
       : (request.receiptToken ?? this.tokenFor(request.id, 'receipt'));
+  }
+
+  private async book(
+    fresh: BookingRecord,
+    tx: Prisma.TransactionClient,
+    excludeHoldId?: string,
+  ) {
+    await this.assertConfirmable(fresh, tx);
+    const segments = readSegments(fresh.segments);
+    for (const id of [...new Set(segments.map((segment) => segment.serviceId))].sort()) {
+      await tx.$queryRaw`SELECT "id" FROM "SpaService" WHERE "id" = ${id}::uuid AND "spaId" = ${fresh.spaId}::uuid FOR SHARE`;
+    }
+    await this.assertConfirmable(fresh, tx);
+    const customer = await this.verifiedCustomer(fresh, tx);
+    const serviceExtras = new Map(
+      (
+        await tx.spaService.findMany({
+          where: {
+            spaId: fresh.spaId,
+            id: { in: [...new Set(segments.map((segment) => segment.serviceId))] },
+          },
+          select: {
+            id: true,
+            extraCommission: true,
+            extraCommissionRate: true,
+          },
+        })
+      ).map((service) => [service.id, service]),
+    );
+    let firstId = '';
+    const professionalIds: string[] = [];
+    for (const [index, segment] of segments.entries()) {
+      const slot = this.slot(
+        fresh.spa,
+        segment.start,
+        segment.durationMinutes,
+        index > 0,
+      );
+      const requested =
+        segments.length === 1
+          ? (fresh.professionalId ?? undefined)
+          : segment.professionalId;
+      const chosen = await this.firstAvailable(
+        fresh.spaId,
+        segment.serviceId,
+        slot,
+        requested,
+        tx,
+        excludeHoldId,
+      );
+      if (!chosen) throw new ConflictException('El horario ya no esta disponible.');
+      const appointmentDate = new Date(`${slot.local.toISODate()}T00:00:00.000Z`);
+      if (
+        await this.scheduling.categoryTaken(
+          {
+            spaId: fresh.spaId,
+            customerId: customer.id,
+            appointmentDate,
+            categoryId: segment.categoryId,
+          },
+          tx,
+        )
+      ) {
+        throw new ConflictException(
+          'Ya existe una reserva de esta categoria para ese dia.',
+        );
+      }
+      const appointment = await tx.appointment.create({
+        data: {
+          spaId: fresh.spaId,
+          professionalId: chosen.id,
+          serviceId: segment.serviceId,
+          customerId: customer.id,
+          customerName: fresh.submittedName,
+          customerPhone: fresh.submittedPhone,
+          customerNationalId: fresh.nationalId,
+          customerEmail: fresh.email,
+          startAt: slot.start.toUTC().toJSDate(),
+          endAt: slot.end.toUTC().toJSDate(),
+          appointmentDate,
+          serviceCategoryId: segment.categoryId,
+          servicePrice: new Prisma.Decimal(segment.price),
+          commissionRate: effectiveCommissionRate(
+            chosen.commissionRate,
+            serviceExtras.get(segment.serviceId),
+          ),
+          isWalkIn: false,
+          createdById: null,
+          ...(segments.length > 1
+            ? { visitRequestId: fresh.id, visitGroupId: fresh.id }
+            : {}),
+        },
+      });
+      if (!firstId) firstId = appointment.id;
+      professionalIds.push(chosen.id);
+    }
+    return { customer, firstId, professionalIds };
   }
 
   private async verifiedCustomer(
@@ -805,6 +1014,9 @@ export class PublicBookingRequestsService {
       }
       throw new GoneException('Este enlace expiró. Elige el horario otra vez.');
     }
+    if (request.status === 'AWAITING_PAYMENT') {
+      throw new ConflictException('El spa todavía está revisando el pago.');
+    }
     if (request.status !== 'PENDING') {
       throw new ConflictException('Esta solicitud ya no se puede modificar.');
     }
@@ -840,6 +1052,9 @@ export class PublicBookingRequestsService {
         !this.bookedAppointments(request).some((a) => a.status !== 'CANCELLED'))
     ) {
       return this.summary(request, 'CANCELLED');
+    }
+    if (request.status === 'AWAITING_PAYMENT') {
+      throw new ConflictException('El spa todavía está revisando el pago.');
     }
     if (
       request.status === 'CONFIRMED' &&
@@ -949,6 +1164,86 @@ export class PublicBookingRequestsService {
     };
   }
 
+  private async clearProof(requestId: string, stored: string | null) {
+    if (!stored) return;
+    await this.proofs.remove(stored).catch(() => undefined);
+    await this.prisma.bookingRequest.updateMany({
+      where: { id: requestId, paymentProofPath: stored },
+      data: { paymentProofPath: null, paymentProofMime: null, paymentProofBytes: null },
+    });
+  }
+
+  private async expirePaymentHolds(spaId: string) {
+    await this.prisma.bookingRequest.updateMany({
+      where: {
+        spaId,
+        status: 'AWAITING_PAYMENT',
+        expiresAt: { lte: new Date() },
+      },
+      data: { status: 'EXPIRED' },
+    });
+  }
+
+  private presentReview(request: ReviewRecord) {
+    const amount = (value: Prisma.Decimal | null) =>
+      value == null ? null : Number(value.toString());
+    return {
+      id: request.id,
+      status: request.status,
+      customerName: request.submittedName,
+      email: request.email,
+      phone: request.submittedPhone,
+      nationalId: request.nationalId,
+      startAt: request.startAt.toISOString(),
+      endAt: request.endAt.toISOString(),
+      expiresAt: request.expiresAt.toISOString(),
+      serviceNames: segmentNames(request),
+      professionalName:
+        segmentProfessionals(request) || 'Según disponibilidad',
+      depositAmount: amount(request.depositAmount),
+      depositCurrency: request.depositCurrency,
+      depositVesAmount: amount(request.depositVesAmount),
+      exchangeRate: request.exchangeRate ? Number(request.exchangeRate.toString()) : null,
+      exchangeSource: request.exchangeSource,
+      exchangeQuotedAt: request.exchangeQuotedAt?.toISOString() ?? null,
+      paymentMethodLabel: request.paymentMethodLabel,
+      paymentMethodType: request.paymentMethod?.type ?? null,
+      paymentReference: request.paymentReference,
+      hasProof: Boolean(request.paymentProofPath),
+      paymentSubmittedAt: request.paymentSubmittedAt?.toISOString() ?? null,
+    };
+  }
+
+  private confirmationUrl(request: BookingRecord) {
+    const settings = readBookingUrlConfig((key) => this.config.get<string>(key));
+    return publicSpaUrl(
+      settings,
+      request.spa.slug,
+      `/booking/confirmation?token=${encodeURIComponent(this.receiptToken(request))}`,
+    );
+  }
+
+  private async sendDecision(request: BookingRecord, kind: 'confirmed' | 'rejected') {
+    try {
+      const message = await this.mailFor(request, this.verificationToken(request));
+      if (kind === 'confirmed') {
+        await this.mail.sendBookingConfirmed({
+          ...message,
+          reference: `Código ${bookingCode(request.appointmentId ?? request.id)}.`,
+          verificationUrl: this.confirmationUrl(request),
+        });
+      } else {
+        await this.mail.sendBookingPaymentRejected({
+          ...message,
+          reference: 'No pudimos validar el pago, así que el horario quedó libre.',
+        });
+      }
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   private verificationUrl(slug: string, token: string) {
     const settings = readBookingUrlConfig((key) => this.config.get<string>(key));
     return publicSpaUrl(
@@ -970,12 +1265,138 @@ export class PublicBookingRequestsService {
     return professional?.displayName ?? 'Profesional';
   }
 
+  private async paymentIntent(
+    spa: {
+      id: string;
+      currency: string;
+      remoteDepositMode: 'NONE' | 'PERCENT' | 'FIXED';
+      remoteDepositValue: Prisma.Decimal | null;
+      remoteDepositCurrency: string | null;
+      paymentReviewHoldMinutes: number;
+    },
+    dto: CreatePublicBookingDto,
+    total: Prisma.Decimal,
+  ) {
+    if (spa.remoteDepositMode === 'NONE') {
+      if (dto.payment) throw new BadRequestException('Este spa no pide adelanto.');
+      return null;
+    }
+    if (!dto.payment) throw new BadRequestException('Indica el pago del adelanto.');
+    const method = await this.prisma.spaPaymentMethod.findFirst({
+      where: { id: dto.payment.methodId, spaId: spa.id, isActive: true },
+    });
+    if (!method) throw new BadRequestException('Elige un método de pago del spa.');
+    const value = spa.remoteDepositValue == null ? null : Number(spa.remoteDepositValue);
+    const quote = depositQuote({
+      mode: spa.remoteDepositMode,
+      percent: value,
+      fixedAmount: value,
+      fixedCurrency: spa.remoteDepositCurrency,
+      serviceTotal: total,
+      serviceCurrency: spa.currency,
+    });
+    const conversion = await this.rates.convert({
+      method: method.type,
+      currency: quote.currency,
+      amount: quote.amount,
+    });
+    return {
+      method: { id: method.id, label: method.label, type: method.type },
+      reference: parsePaymentReference(dto.payment.reference),
+      proof: decodePaymentProof(dto.payment.proof, method.requiresProof),
+      amount: quote.amount,
+      currency: quote.currency,
+      holdMinutes: spa.paymentReviewHoldMinutes,
+      conversion,
+    };
+  }
+
+  private paymentData(
+    payment: Awaited<ReturnType<PublicBookingRequestsService['paymentIntent']>>,
+    now: Date,
+  ) {
+    if (!payment) return {};
+    return {
+      status: 'AWAITING_PAYMENT' as const,
+      paymentMethodId: payment.method.id,
+      paymentMethodLabel: payment.method.label,
+      depositAmount: payment.amount,
+      depositCurrency: payment.currency,
+      ...(payment.conversion
+        ? {
+            depositVesAmount: payment.conversion.vesAmount,
+            exchangeRate: payment.conversion.rate,
+            exchangeSource: payment.conversion.source,
+            exchangeQuotedAt: new Date(payment.conversion.quotedAt),
+          }
+        : {}),
+      paymentReference: payment.reference,
+      paymentSubmittedAt: now,
+    };
+  }
+
+  private async deliver(
+    request: BookingRecord,
+    token: string,
+    payment: Awaited<ReturnType<PublicBookingRequestsService['paymentIntent']>>,
+  ) {
+    if (!payment) {
+      try {
+        await this.mail.sendBookingVerification(await this.mailFor(request, token));
+      } catch (error) {
+        await this.prisma.bookingRequest.delete({ where: { id: request.id } });
+        throw error;
+      }
+      return {
+        requestId: `${request.id}.${this.tokenFor(request.id, 'resend')}`,
+        expiresAt: request.expiresAt.toISOString(),
+      };
+    }
+    let stored: string | undefined;
+    try {
+      if (payment.proof) {
+        stored = await this.proofs.save(request.spaId, request.id, payment.proof);
+        await this.prisma.bookingRequest.update({
+          where: { id: request.id },
+          data: {
+            paymentProofPath: stored,
+            paymentProofMime: payment.proof.mime,
+            paymentProofBytes: payment.proof.bytes.length,
+          },
+        });
+      }
+      const message = await this.mailFor(request, token);
+      await this.mail.sendBookingPaymentReceived({
+        ...message,
+        deposit: payment.conversion
+          ? `${payment.amount.toFixed(2)} ${payment.currency} (Bs. ${payment.conversion.vesAmount.toFixed(2)} a tasa ${payment.conversion.source === 'BINANCE' ? 'Binance' : 'BCV'})`
+          : `${payment.amount.toFixed(2)} ${payment.currency}`,
+        reference: payment.reference,
+        expiresAt: formatWhen(request.expiresAt, request.spa.timezone),
+      });
+    } catch (error) {
+      if (stored) await this.proofs.remove(stored).catch(() => undefined);
+      await this.prisma.bookingRequest.delete({ where: { id: request.id } });
+      throw error;
+    }
+    return {
+      requestId: request.id,
+      expiresAt: request.expiresAt.toISOString(),
+      status: 'AWAITING_PAYMENT' as const,
+      depositAmount: Number(payment.amount.toFixed(2)),
+      depositCurrency: payment.currency,
+      depositVesAmount: payment.conversion ? Number(payment.conversion.vesAmount.toFixed(2)) : null,
+      exchangeSource: payment.conversion?.source ?? null,
+    };
+  }
+
   private async firstAvailable(
     spaId: string,
     serviceId: string,
     slot: ReturnType<PublicBookingRequestsService['slot']>,
     professionalId?: string,
     client?: Prisma.TransactionClient,
+    excludeHoldId?: string,
   ) {
     const professionals = await (client ?? this.prisma).professional.findMany({
       where: {
@@ -985,8 +1406,17 @@ export class PublicBookingRequestsService {
         services: { some: { serviceId, spaId } },
       },
       orderBy: { displayName: 'asc' },
-      select: { id: true, commissionRate: true },
+      select: { id: true, commissionRate: true, displayName: true },
     });
+    const windowStart = slot.start.toUTC().toJSDate();
+    const windowEnd = slot.end.toUTC().toJSDate();
+    const holds = await this.scheduling.paymentHolds(
+      spaId,
+      windowStart,
+      windowEnd,
+      client,
+      excludeHoldId,
+    );
     for (const professional of professionals) {
       if (client) {
         await client.$queryRaw`SELECT "id" FROM "Professional" WHERE "id" = ${professional.id}::uuid AND "spaId" = ${spaId}::uuid FOR SHARE`;
@@ -1016,12 +1446,17 @@ export class PublicBookingRequestsService {
         {
           spaId,
           professionalId: professional.id,
-          start: slot.start.toUTC().toJSDate(),
-          end: slot.end.toUTC().toJSDate(),
+          start: windowStart,
+          end: windowEnd,
         },
         client,
       );
-      if (!overlap) return professional;
+      const held = holds.some(
+        (hold) =>
+          hold.professionalId === professional.id &&
+          rangesOverlap(hold.startAt, hold.endAt, windowStart, windowEnd),
+      );
+      if (!overlap && !held) return professional;
     }
     return null;
   }
@@ -1078,14 +1513,17 @@ function readSegments(value: Prisma.JsonValue | null): PublicSequenceSegment[] {
   });
 }
 
-function segmentNames(request: BookingRecord) {
+function segmentNames(request: {
+  segments: Prisma.JsonValue | null;
+  service: { name: string };
+}) {
   const segments = readSegments(request.segments);
   return segments.length
     ? segments.map((segment) => segment.serviceName)
     : [request.service.name];
 }
 
-function segmentProfessionals(request: BookingRecord) {
+function segmentProfessionals(request: { segments: Prisma.JsonValue | null }) {
   const names = [
     ...new Set(
       readSegments(request.segments)
