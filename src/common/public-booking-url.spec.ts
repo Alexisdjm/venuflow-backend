@@ -19,7 +19,7 @@ describe('public booking urls', () => {
   it('builds a local subdomain from configuration', () => {
     expect(
       publicSpaUrl(read(dev), 'emi-nails', '/booking/verify?token=abc'),
-    ).toBe('http://emi-nails.localhost:3002/booking/verify?token=abc');
+    ).toBe('http://localhost:3002/emi-nails/booking/verify?token=abc');
   });
 
   it('builds the production origin from the configured root domain', () => {
@@ -30,7 +30,7 @@ describe('public booking urls', () => {
         '/booking/confirmation?token=abc',
       ),
     ).toBe(
-      'https://bella-nails.tryvenueflow.com/booking/confirmation?token=abc',
+      'https://form.tryvenueflow.com/bella-nails/booking/confirmation?token=abc',
     );
   });
 
@@ -41,11 +41,11 @@ describe('public booking urls', () => {
         'emi-nails',
         '/booking/verify?token=abc',
       ),
-    ).toBe('http://emi-nails.localhost:3002/booking/verify?token=abc');
+    ).toBe('http://localhost:3002/emi-nails/booking/verify?token=abc');
   });
 
   it('rejects reserved slugs, foreign domains and unsafe paths', () => {
-    for (const slug of ['app', 'api', 'www', 'admin', 'Emi Nails', 'spa.evil.com']) {
+    for (const slug of ['app', 'api', 'www', 'admin', 'form', 'Emi Nails', 'spa.evil.com']) {
       expect(isPublicSpaSlug(slug)).toBe(false);
       expect(() =>
         publicSpaUrl(read(production), slug, '/booking/verify?token=abc'),

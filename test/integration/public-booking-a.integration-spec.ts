@@ -697,7 +697,8 @@ describe('Block A public booking security (real PostgreSQL)', () => {
       );
     const message = mail.sendBookingUpdate.mock.calls.at(-1)![0];
     const link = new URL(message.verificationUrl);
-    expect(link.pathname).toBe('/booking/confirmation');
+    expect(link.hostname).toBe('localhost');
+    expect(link.pathname).toBe(`/${slug}/booking/confirmation`);
     expect(link.searchParams.get('token')).toBe(receipt.receiptToken);
     expect(
       (await api.confirmation(link.searchParams.get('token')!)).status,
@@ -778,9 +779,10 @@ describe('Block A public booking security (real PostgreSQL)', () => {
     const tokenB = linkB.searchParams.get('token')!;
     const idB = createdB.requestId.split('.')[0];
 
-    expect(linkA.hostname).toBe(`${slug}.localhost`);
-    expect(linkB.hostname).toBe(`${otherSlug}.localhost`);
-    expect(linkA.pathname).toBe('/booking/verify');
+    expect(linkA.hostname).toBe('localhost');
+    expect(linkB.hostname).toBe('localhost');
+    expect(linkA.pathname).toBe(`/${slug}/booking/verify`);
+    expect(linkB.pathname).toBe(`/${otherSlug}/booking/verify`);
     expect(tokenA).not.toBe(tokenB);
     expect((await api.details(tokenA)).spaName).toBe('Security A');
     expect((await api.details(tokenA)).serviceNames).toEqual(['Service 0']);
@@ -795,7 +797,7 @@ describe('Block A public booking security (real PostgreSQL)', () => {
     });
     await api.resend(createdA.requestId);
     await api.resend(createdB.requestId);
-    expect(new URL(latestMail('Security A').verificationUrl).hostname).toBe(`${slug}.localhost`);
+    expect(new URL(latestMail('Security A').verificationUrl).pathname).toBe(`/${slug}/booking/verify`);
     expect(new URL(latestMail('Spa B').verificationUrl).searchParams.get('token')).toBe(tokenB);
 
     const receiptA = await api.confirm(tokenA, randomUUID());

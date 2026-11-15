@@ -325,13 +325,13 @@ describe('SpasService', () => {
     const service = new SpasService(prisma as never, audit as never, config as never);
 
     await expect(service.get('plus')).resolves.toEqual(
-      expect.objectContaining({ publicUrl: 'https://plus-spa.tryvenueflow.com' }),
+      expect.objectContaining({ publicUrl: 'https://form.tryvenueflow.com/plus-spa' }),
     );
     await expect(service.get('basic')).resolves.toEqual(
       expect.objectContaining({ publicUrl: null }),
     );
     await expect(service.get('demo')).resolves.toEqual(
-      expect.objectContaining({ publicUrl: 'https://demo-spa.tryvenueflow.com' }),
+      expect.objectContaining({ publicUrl: 'https://form.tryvenueflow.com/demo-spa' }),
     );
   });
 });

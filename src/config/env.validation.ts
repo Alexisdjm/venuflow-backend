@@ -59,7 +59,7 @@ class EnvironmentVariables {
   @Transform(({ value }) => blankToUndefined(value) ?? 'http://localhost:3002')
   @IsUrl({ require_tld: false, protocols: ['http', 'https'] })
   PUBLIC_BOOKING_BASE_URL = 'http://localhost:3002';
-  /** Hostname only, for example tryvenueflow.com. Each spa is served at {slug}.{domain}. */
+  /** Hostname only, for example tryvenueflow.com. Public forms use form.domain/slug. */
   @Transform(({ value }) => blankToUndefined(value))
   @IsOptional()
   @Matches(

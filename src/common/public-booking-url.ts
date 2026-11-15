@@ -1,7 +1,7 @@
 const hostname =
   /^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)*[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
 const publicSlug = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
-const reservedSlugs = new Set(['app', 'api', 'www', 'admin']);
+const reservedSlugs = new Set(['app', 'api', 'www', 'admin', 'form']);
 
 export type BookingUrlSettings = {
   protocol: 'http' | 'https';
@@ -29,12 +29,19 @@ export function readBookingUrlConfig(
   return { protocol, rootDomain, port };
 }
 
+function bookingHost(settings: BookingUrlSettings) {
+  const port = settings.port ? `:${settings.port}` : '';
+  if (settings.rootDomain === 'localhost' || settings.rootDomain === '127.0.0.1') {
+    return `${settings.protocol}://${settings.rootDomain}${port}`;
+  }
+  return `${settings.protocol}://form.${settings.rootDomain}${port}`;
+}
+
 export function publicSpaOrigin(settings: BookingUrlSettings, slug: string) {
   if (!isPublicSpaSlug(slug) || !asHostname(settings.rootDomain)) {
     throw new Error('Invalid public booking origin');
   }
-  const port = settings.port ? `:${settings.port}` : '';
-  return `${settings.protocol}://${slug}.${settings.rootDomain}${port}`;
+  return `${bookingHost(settings)}/${slug}`;
 }
 
 export function publicSpaUrl(
