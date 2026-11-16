@@ -1556,7 +1556,15 @@ describe('Block A public booking security (real PostgreSQL)', () => {
       professionalId,
       start,
       customer,
-      payment: { methodId: method.id, reference: '123456' },
+      payment: {
+        methodId: method.id,
+        reference: '123456',
+        pagoMovil: {
+          nationalId: '12345678',
+          phone: '04141234567',
+          bank: '0134 - Banesco',
+        },
+      },
     });
 
     expect(created.status).toBe('AWAITING_PAYMENT');

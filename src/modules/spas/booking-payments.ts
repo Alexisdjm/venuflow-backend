@@ -185,6 +185,15 @@ export function parsePaymentReference(value: unknown) {
   return reference;
 }
 
+export function parsePagoMovilSender(input: unknown) {
+  const source = asRecord(input);
+  return {
+    nationalId: digits(source.nationalId, 5, 12, 'La cédula'),
+    phone: digits(source.phone, 10, 15, 'El teléfono'),
+    bank: venezuelanBank(source.bank),
+  };
+}
+
 export function toPublicBookingPolicy(
   policy: {
     remoteDepositMode: RemoteDepositMode;

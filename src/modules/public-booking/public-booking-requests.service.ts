@@ -36,6 +36,7 @@ import { rangesOverlap, SchedulingService } from '../scheduling/scheduling.servi
 import { effectiveCommissionRate } from '../services/extra-commission';
 import {
   depositQuote,
+  parsePagoMovilSender,
   parsePaymentReference,
 } from '../spas/booking-payments';
 import { decodePaymentProof } from './payment-proof';
@@ -1209,6 +1210,7 @@ export class PublicBookingRequestsService {
       paymentMethodLabel: request.paymentMethodLabel,
       paymentMethodType: request.paymentMethod?.type ?? null,
       paymentReference: request.paymentReference,
+      paymentSender: paymentSenderDetails(request.paymentSenderDetails),
       hasProof: Boolean(request.paymentProofPath),
       paymentSubmittedAt: request.paymentSubmittedAt?.toISOString() ?? null,
     };
@@ -1286,6 +1288,13 @@ export class PublicBookingRequestsService {
       where: { id: dto.payment.methodId, spaId: spa.id, isActive: true },
     });
     if (!method) throw new BadRequestException('Elige un método de pago del spa.');
+    if (method.type === 'PAGO_MOVIL') {
+      if (!dto.payment.pagoMovil) {
+        throw new BadRequestException('Indica la cédula, el teléfono y el banco del pago móvil.');
+      }
+    } else if (dto.payment.pagoMovil) {
+      throw new BadRequestException('Este método no usa datos de pago móvil.');
+    }
     const value = spa.remoteDepositValue == null ? null : Number(spa.remoteDepositValue);
     const quote = depositQuote({
       mode: spa.remoteDepositMode,
@@ -1303,6 +1312,7 @@ export class PublicBookingRequestsService {
     return {
       method: { id: method.id, label: method.label, type: method.type },
       reference: parsePaymentReference(dto.payment.reference),
+      sender: method.type === 'PAGO_MOVIL' ? parsePagoMovilSender(dto.payment.pagoMovil) : null,
       proof: decodePaymentProof(dto.payment.proof, method.requiresProof),
       amount: quote.amount,
       currency: quote.currency,
@@ -1331,6 +1341,7 @@ export class PublicBookingRequestsService {
           }
         : {}),
       paymentReference: payment.reference,
+      paymentSenderDetails: payment.sender,
       paymentSubmittedAt: now,
     };
   }
@@ -1536,6 +1547,19 @@ function segmentProfessionals(request: { segments: Prisma.JsonValue | null }) {
 
 function bookingCode(appointmentId: string) {
   return `VF-${appointmentId.replaceAll('-', '').slice(0, 8).toUpperCase()}`;
+}
+
+function paymentSenderDetails(value: Prisma.JsonValue | null) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const row = value as Record<string, unknown>;
+  if (
+    typeof row.nationalId !== 'string' ||
+    typeof row.phone !== 'string' ||
+    typeof row.bank !== 'string'
+  ) {
+    return null;
+  }
+  return { nationalId: row.nationalId, phone: row.phone, bank: row.bank };
 }
 
 function formatWhen(value: Date, timezone: string) {

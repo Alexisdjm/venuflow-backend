@@ -45,6 +45,19 @@ export class PublicPaymentProofDto {
   data!: string;
 }
 
+export class PublicPagoMovilSenderDto {
+  @Matches(/^\d{7,8}$/, { message: 'La cédula debe tener 7 u 8 dígitos.' })
+  nationalId!: string;
+
+  @Matches(/^\d{10,15}$/, { message: 'Usa el teléfono del pago móvil.' })
+  phone!: string;
+
+  @IsString({ message: 'Elige el banco desde el que pagaste.' })
+  @MinLength(7, { message: 'Elige el banco desde el que pagaste.' })
+  @MaxLength(80, { message: 'Elige el banco desde el que pagaste.' })
+  bank!: string;
+}
+
 export class PublicPaymentDto {
   @IsUUID('4', { message: 'Elige un método de pago.' })
   methodId!: string;
@@ -53,6 +66,11 @@ export class PublicPaymentDto {
   @MinLength(4, { message: 'La referencia debe tener entre 4 y 40 caracteres.' })
   @MaxLength(40, { message: 'La referencia debe tener entre 4 y 40 caracteres.' })
   reference!: string;
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => PublicPagoMovilSenderDto)
+  pagoMovil?: PublicPagoMovilSenderDto;
 
   @IsOptional()
   @ValidateNested()

@@ -47,6 +47,11 @@ describe('payment review queue', () => {
       depositVesAmount: 6837.18,
       exchangeSource: 'BCV',
       paymentReference: '123456',
+      paymentSender: {
+        nationalId: '12345678',
+        phone: '04141234567',
+        bank: '0134 - Banesco',
+      },
       hasProof: true,
       professionalName: 'Jenny G',
     });
@@ -135,6 +140,11 @@ function reviewRow() {
     exchangeSource: 'BCV',
     exchangeQuotedAt: new Date('2026-11-13T04:00:00.000Z'),
     paymentReference: '123456',
+    paymentSenderDetails: {
+      nationalId: '12345678',
+      phone: '04141234567',
+      bank: '0134 - Banesco',
+    },
     paymentProofPath: 'spa-1/req-1/file.jpg',
     paymentSubmittedAt: new Date('2026-11-15T20:00:00.000Z'),
   };

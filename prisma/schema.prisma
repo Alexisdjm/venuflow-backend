@@ -365,6 +365,7 @@ model BookingRequest {
   exchangeSource    String?              @db.VarChar(16)
   exchangeQuotedAt  DateTime?
   paymentReference  String?              @db.VarChar(80)
+  paymentSenderDetails Json?
   paymentProofPath  String?              @db.VarChar(240)
   paymentProofMime  String?              @db.VarChar(40)
   paymentProofBytes Int?

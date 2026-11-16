@@ -3,6 +3,7 @@ import { Prisma } from '../../generated/prisma/client';
 import {
   depositQuote,
   parseDepositPolicy,
+  parsePagoMovilSender,
   parsePaymentDetails,
   parsePaymentLabel,
   parsePaymentReference,
@@ -48,6 +49,16 @@ describe('booking payment policy', () => {
     }).currency).toBe('VES');
     expect(() => parsePaymentReference('abc')).toThrow(BadRequestException);
     expect(parsePaymentReference('  1234-AB  ')).toBe('1234-AB');
+    expect(parsePagoMovilSender({
+      nationalId: '12.345.678',
+      phone: '0414-1234567',
+      bank: '0134 - Banesco',
+    })).toEqual({ nationalId: '12345678', phone: '04141234567', bank: '0134 - Banesco' });
+    expect(() => parsePagoMovilSender({
+      nationalId: '12345678',
+      phone: '04141234567',
+      bank: 'Banesco',
+    })).toThrow(BadRequestException);
   });
 
   it('rejects a deposit without the fields that mode requires', () => {
