@@ -29,7 +29,7 @@ class PublicSpaSlugConstraint implements ValidatorConstraintInterface {
   }
 }
 
-export const SPA_CURRENCIES = ['USD', 'USDT', 'EUR', 'VES'] as const;
+export const SPA_CURRENCIES = ['USD', 'USDT', 'EUR', 'VES', 'COP', 'MXN', 'PEN', 'BRL', 'ARS', 'CLP'] as const;
 export const SPA_PLANS = ['BASIC', 'PLUS', 'DEMO'] as const;
 
 export class CreateSpaDto {

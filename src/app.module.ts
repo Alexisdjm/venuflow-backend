@@ -16,6 +16,7 @@ import { AppointmentsModule } from './modules/appointments/appointments.module';
 import { CustomersModule } from './modules/customers/customers.module';
 import { PublicBookingModule } from './modules/public-booking/public-booking.module';
 import { MailModule } from './modules/mail/mail.module';
+import { TrialModule } from './modules/trial/trial.module';
 @Module({
   imports: [
     ConfigModule.forRoot({
@@ -37,6 +38,7 @@ import { MailModule } from './modules/mail/mail.module';
     CustomersModule,
     PublicBookingModule,
     MailModule,
+    TrialModule,
   ],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
 })

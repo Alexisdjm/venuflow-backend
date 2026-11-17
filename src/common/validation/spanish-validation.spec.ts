@@ -45,5 +45,14 @@ describe('spanishValidationMessages', () => {
         },
       ]),
     ).toEqual(['Ese identificador no puede usarse como dirección pública.']);
+    expect(
+      spanishValidationMessages([
+        {
+          property: 'slug',
+          constraints: { trialPublicSlug: 'reserved' },
+          children: [],
+        },
+      ]),
+    ).toEqual(['Ese identificador no puede usarse como dirección pública.']);
   });
 });

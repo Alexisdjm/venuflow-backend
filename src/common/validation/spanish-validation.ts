@@ -42,6 +42,10 @@ const labels: Record<string, string> = {
   type: 'El tipo de método',
   value: 'El valor del adelanto',
   slug: 'El identificador',
+  spaName: 'El nombre del spa',
+  country: 'El país',
+  category: 'La categoría',
+  extraProfessionals: 'Las profesionales',
   timezone: 'La zona horaria',
   startAt: 'El horario',
   startTime: 'La hora de inicio',
@@ -79,6 +83,7 @@ function phrase(constraint: string, field: string) {
     case 'isIn':
       return `${field} no es una opción válida.`;
     case 'publicSpaSlug':
+    case 'trialPublicSlug':
       return 'Ese identificador no puede usarse como dirección pública.';
     case 'isInt':
     case 'isNumber':
