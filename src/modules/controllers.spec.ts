@@ -339,6 +339,8 @@ describe('HTTP controllers', () => {
       professionals as never,
       services as never,
       spas as never,
+      { get: jest.fn() } as never,
+      { get: jest.fn() } as never,
     );
     const query = { page: 1, limit: 10 };
 
