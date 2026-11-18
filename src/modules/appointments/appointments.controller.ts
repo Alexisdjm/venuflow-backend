@@ -16,11 +16,11 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { AppointmentsService } from './appointments.service';
-import { AppointmentBundlesService } from './appointment-bundles.service';
+import { AppointmentBundlesService } from '../../verticals/spa/visit-bundle/appointment-bundles.service';
 import {
   BundleAvailabilityDto,
   CreateAppointmentBundleDto,
-} from './dto/appointment-bundle.dto';
+} from '../../verticals/spa/visit-bundle/dto/appointment-bundle.dto';
 import {
   CreateAppointmentDto,
   ListAppointmentsDto,

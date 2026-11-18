@@ -1,7 +1,7 @@
 import { ConflictException } from '@nestjs/common';
-import { Prisma } from '../../generated/prisma/client';
+import { Prisma } from '../../../generated/prisma/client';
 import { AppointmentBundlesService } from './appointment-bundles.service';
-import { SchedulingService } from '../scheduling/scheduling.service';
+import { SchedulingService } from '../../../modules/scheduling/scheduling.service';
 
 describe('AppointmentBundlesService', () => {
   const admin = {

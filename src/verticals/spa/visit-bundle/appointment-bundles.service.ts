@@ -6,17 +6,17 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { DateTime } from 'luxon';
-import type { AuthUser } from '../../common/auth.types';
-import { PrismaService } from '../../database/prisma/prisma.service';
-import { Prisma } from '../../generated/prisma/client';
+import type { AuthUser } from '../../../common/auth.types';
+import { PrismaService } from '../../../database/prisma/prisma.service';
+import { Prisma } from '../../../generated/prisma/client';
 import {
   pastBeyondGrace,
   professionalBusy,
   SchedulingService,
   sequenceStaysOpen,
   shiftCovers,
-} from '../scheduling/scheduling.service';
-import { effectiveCommissionRate } from '../services/extra-commission';
+} from '../../../modules/scheduling/scheduling.service';
+import { effectiveCommissionRate } from '../../../modules/services/extra-commission';
 import {
   AppointmentBundleItemDto,
   BundleAvailabilityDto,
