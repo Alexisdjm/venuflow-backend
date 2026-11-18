@@ -6,10 +6,11 @@ import { AppointmentsController } from './appointments.controller';
 import { AppointmentsService } from './appointments.service';
 import { RevenueController } from './revenue.controller';
 import { RevenueService } from './revenue.service';
-import { AppointmentBundlesService } from './appointment-bundles.service';
+import { VisitBundleModule } from '../../verticals/spa/visit-bundle/visit-bundle.module';
+
 @Module({
-  imports: [AuditModule, MailModule, SchedulingModule],
+  imports: [AuditModule, MailModule, SchedulingModule, VisitBundleModule],
   controllers: [AppointmentsController, RevenueController],
-  providers: [AppointmentsService, AppointmentBundlesService, RevenueService],
+  providers: [AppointmentsService, RevenueService],
 })
 export class AppointmentsModule {}
