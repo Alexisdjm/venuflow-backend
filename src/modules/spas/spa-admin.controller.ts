@@ -22,6 +22,7 @@ import { ProfessionalsService } from '../professionals/professionals.service';
 import { ServicesService } from '../services/services.service';
 import { SpasService } from './spas.service';
 import { BookingPaymentsService } from './booking-payments.service';
+import { SpaSetupService } from './spa-setup.service';
 import {
   CreatePaymentMethodDto,
   UpdateBookingPaymentsDto,
@@ -46,6 +47,7 @@ export class SpaAdminController {
     private readonly services: ServicesService,
     private readonly spas: SpasService,
     private readonly payments: BookingPaymentsService,
+    private readonly setup: SpaSetupService,
   ) {}
   private tenant(u: AuthUser) {
     if (!u.spaId) throw new Error('Missing tenant');
@@ -55,6 +57,9 @@ export class SpaAdminController {
   @Roles('SPA_ADMIN', 'PROFESSIONAL')
   getSpa(@CurrentUser() u: AuthUser) {
     return this.spas.get(this.tenant(u));
+  }
+  @Get('setup') setupStatus(@CurrentUser() u: AuthUser) {
+    return this.setup.get(this.tenant(u));
   }
   @Get('settings/booking-payments') bookingPayments(@CurrentUser() u: AuthUser) {
     return this.payments.get(this.tenant(u));
