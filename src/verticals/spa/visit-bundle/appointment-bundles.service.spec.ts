@@ -106,6 +106,7 @@ describe('AppointmentBundlesService', () => {
 
   it('rejects two services from the same category', async () => {
     const prisma = {
+      spa: { findUniqueOrThrow: jest.fn().mockResolvedValue({ kind: 'SPA' }) },
       spaService: {
         findUnique: jest
           .fn()

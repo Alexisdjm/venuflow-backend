@@ -45,6 +45,7 @@ const labels: Record<string, string> = {
   spaName: 'El nombre del spa',
   country: 'El país',
   category: 'La categoría',
+  kind: 'El tipo de negocio',
   extraProfessionals: 'Las profesionales',
   timezone: 'La zona horaria',
   startAt: 'El horario',

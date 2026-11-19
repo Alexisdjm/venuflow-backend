@@ -16,6 +16,14 @@ enum SpaPlan {
   PLUS
   DEMO
 }
+enum SpaKind {
+  SPA
+  BARBER
+  NAILS
+  HAIR
+  LASHES
+  SOLO
+}
 enum UserRole {
   PLATFORM_ADMIN
   SPA_ADMIN
@@ -69,6 +77,7 @@ model Spa {
   slug      String     @unique
   status    SpaStatus  @default(ACTIVE)
   plan      SpaPlan    @default(PLUS)
+  kind      SpaKind    @default(SPA)
   timezone  String
   currency  String     @db.VarChar(4)
   openingMinute Int     @default(540)
