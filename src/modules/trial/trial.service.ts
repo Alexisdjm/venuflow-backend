@@ -14,6 +14,7 @@ import {
   DEFAULT_SERVICE_CATEGORIES,
   normalizeCategoryName,
 } from '../services/default-categories';
+import { IMPLICIT_CATEGORY_NAME, businessCapabilities } from '../spas/business-kind';
 import { CreateTrialDto } from './dto/create-trial.dto';
 import { trialPlace } from './trial-places';
 
@@ -57,6 +58,10 @@ export class TrialService {
     if (extras.some((person) => person.phone === phone) || new Set(extras.map((person) => person.phone)).size !== extras.length) {
       throw new BadRequestException('Cada profesional necesita un teléfono distinto.');
     }
+    const fullCatalog = businessCapabilities(dto.kind).serviceCategories;
+    if (fullCatalog && dto.services.some((service) => !service.category)) {
+      throw new BadRequestException('Elige una categoría de la lista.');
+    }
     const names = new Set(dto.services.map((service) => service.name.trim().toLocaleLowerCase('es')));
     if (names.size !== dto.services.length) {
       throw new BadRequestException('Los servicios deben tener nombres distintos.');
@@ -74,11 +79,13 @@ export class TrialService {
             timezone: place.timezone,
             currency: place.currency,
             plan: 'DEMO',
+            kind: dto.kind,
             status: 'ACTIVE',
           },
         });
+        const categoryNames = fullCatalog ? DEFAULT_SERVICE_CATEGORIES : [IMPLICIT_CATEGORY_NAME];
         await tx.serviceCategory.createMany({
-          data: DEFAULT_SERVICE_CATEGORIES.map((name, sortOrder) => ({
+          data: categoryNames.map((name, sortOrder) => ({
             spaId: spa.id,
             name,
             normalizedName: normalizeCategoryName(name),
@@ -131,7 +138,9 @@ export class TrialService {
           professionalIds.push(professional.id);
         }
         for (const service of dto.services) {
-          const category = categories.find((item) => item.name === service.category);
+          const category = fullCatalog
+            ? categories.find((item) => item.name === service.category)
+            : categories[0];
           if (!category) throw new BadRequestException('Elige una categoría de la lista.');
           const created = await tx.spaService.create({
             data: {

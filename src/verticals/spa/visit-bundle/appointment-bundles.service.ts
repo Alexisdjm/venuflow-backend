@@ -17,6 +17,7 @@ import {
   shiftCovers,
 } from '../../../modules/scheduling/scheduling.service';
 import { effectiveCommissionRate } from '../../../modules/services/extra-commission';
+import { businessCapabilities } from '../../../modules/spas/business-kind';
 import {
   AppointmentBundleItemDto,
   BundleAvailabilityDto,
@@ -38,6 +39,16 @@ export class AppointmentBundlesService {
     private readonly prisma: PrismaService,
     private readonly scheduling: SchedulingService,
   ) {}
+
+  private async assertBundle(spaId: string) {
+    const spa = await this.prisma.spa.findUniqueOrThrow({
+      where: { id: spaId },
+      select: { kind: true },
+    });
+    if (!businessCapabilities(spa?.kind).visitBundle) {
+      throw new BadRequestException('Este negocio reserva un servicio por cita.');
+    }
+  }
 
   private service(spaId: string, id: string) {
     return this.prisma.spaService.findUnique({
@@ -214,6 +225,7 @@ export class AppointmentBundlesService {
   }
 
   async availability(u: AuthUser, dto: BundleAvailabilityDto) {
+    await this.assertBundle(u.spaId!);
     const items = await this.resolveItems(u.spaId!, dto.items);
     return {
       date: dto.date,
@@ -222,6 +234,7 @@ export class AppointmentBundlesService {
   }
 
   async create(u: AuthUser, dto: CreateAppointmentBundleDto) {
+    await this.assertBundle(u.spaId!);
     const items = await this.resolveItems(u.spaId!, dto.items);
     const requestedStart = DateTime.fromISO(dto.startAt, { setZone: true });
     if (!requestedStart.isValid)

@@ -13,6 +13,7 @@ import { PrismaService } from '../../database/prisma/prisma.service';
 import { PublicAvailabilityQueryDto } from './dto/public-availability.dto';
 import { PublicSequenceAvailabilityDto } from './dto/public-sequence.dto';
 import { PublicVisitSequenceService } from '../../verticals/spa/visit-bundle/public-visit-sequence.service';
+import { businessCapabilities } from '../spas/business-kind';
 
 export type {
   PublicSequencePlan,
@@ -38,6 +39,7 @@ export class PublicBookingService {
       name: spa.name,
       timezone: spa.timezone,
       currency: spa.currency,
+      multiService: businessCapabilities(spa.kind).visitBundle,
     };
   }
 
@@ -121,7 +123,9 @@ export class PublicBookingService {
       return {
         id: professional.id,
         name: professional.displayName,
-        specialty: categories.join(' · ') || 'Profesional',
+        specialty: businessCapabilities(spa.kind).serviceCategories
+          ? categories.join(' · ') || 'Profesional'
+          : 'Profesional',
         serviceIds: professional.services.map((item) => item.serviceId),
         initials: initials(professional.displayName),
       };

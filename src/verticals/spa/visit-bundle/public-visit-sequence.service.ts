@@ -21,6 +21,7 @@ import {
   shiftCovers,
 } from '../../../modules/scheduling/scheduling.service';
 import { PublicSequenceAvailabilityDto } from '../../../modules/public-booking/dto/public-sequence.dto';
+import { businessCapabilities } from '../../../modules/spas/business-kind';
 
 const SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
@@ -57,6 +58,9 @@ export class PublicVisitSequenceService {
     dto: PublicSequenceAvailabilityDto & { start?: string },
   ) {
     const spa = await this.findSpa(slug);
+    if (!businessCapabilities(spa.kind).visitBundle) {
+      throw new BadRequestException('Este negocio reserva un servicio por cita.');
+    }
     const ordered = await this.sequenceItems(spa.id, dto.items);
     const shared = dto.sameProfessional
       ? ordered.every((item) => !item.requestedProfessionalId)

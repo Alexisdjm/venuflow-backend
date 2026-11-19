@@ -23,6 +23,7 @@ import {
 import { IsMailboxProvider } from '../../../common/validation/mailbox-provider';
 import { isPublicSpaSlug } from '../../../common/public-booking-url';
 import { DEFAULT_SERVICE_CATEGORIES } from '../../services/default-categories';
+import { SPA_KINDS } from '../../spas/business-kind';
 import { TRIAL_PLACES } from '../trial-places';
 
 const placeCodes = TRIAL_PLACES.map((place) => place.code);
@@ -43,8 +44,9 @@ export class TrialServiceDto {
   @MaxLength(80)
   name!: string;
 
+  @IsOptional()
   @IsIn(DEFAULT_SERVICE_CATEGORIES, { message: 'Elige una categoría de la lista.' })
-  category!: (typeof DEFAULT_SERVICE_CATEGORIES)[number];
+  category?: (typeof DEFAULT_SERVICE_CATEGORIES)[number];
 
   @IsInt()
   @Min(30, { message: 'La duración mínima es 30 minutos.' })
@@ -87,6 +89,9 @@ export class CreateTrialDto {
 
   @IsIn(placeCodes, { message: 'Elige el país del spa.' })
   country!: (typeof TRIAL_PLACES)[number]['code'];
+
+  @IsIn(SPA_KINDS, { message: 'Elige el tipo de negocio.' })
+  kind!: (typeof SPA_KINDS)[number];
 
   @IsString()
   @MinLength(2, { message: 'Escribe el nombre.' })

@@ -27,6 +27,7 @@ import {
   DEFAULT_SERVICE_CATEGORIES,
   normalizeCategoryName,
 } from '../services/default-categories';
+import { IMPLICIT_CATEGORY_NAME, businessCapabilities } from './business-kind';
 @Injectable()
 export class SpasService {
   constructor(
@@ -38,9 +39,13 @@ export class SpasService {
     this.assertPublicSlug(dto.slug);
     const spa = await this.prisma
       .$transaction(async (tx) => {
-        const created = await tx.spa.create({ data: dto });
+        const kind = dto.kind ?? 'SPA';
+        const created = await tx.spa.create({ data: { ...dto, kind } });
+        const names = businessCapabilities(kind).serviceCategories
+          ? DEFAULT_SERVICE_CATEGORIES
+          : [IMPLICIT_CATEGORY_NAME];
         await tx.serviceCategory.createMany({
-          data: DEFAULT_SERVICE_CATEGORIES.map((name, sortOrder) => ({
+          data: names.map((name, sortOrder) => ({
             spaId: created.id,
             name,
             normalizedName: normalizeCategoryName(name),
@@ -156,7 +161,8 @@ export class SpasService {
   async update(actorUserId: string, id: string, dto: UpdateSpaDto) {
     this.assertPublicSlug(dto.slug);
     await this.get(id);
-    const spa = await this.prisma.spa.update({ where: { id }, data: dto });
+    const { kind: _kind, ...changes } = dto;
+    const spa = await this.prisma.spa.update({ where: { id }, data: changes });
     await this.audit.record({
       actorUserId,
       spaId: id,

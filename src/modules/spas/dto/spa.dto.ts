@@ -18,6 +18,7 @@ import {
 } from 'class-validator';
 import { isPublicSpaSlug } from '../../../common/public-booking-url';
 import { SpaStatus } from '../../../generated/prisma/enums';
+import { SPA_KINDS } from '../business-kind';
 
 @ValidatorConstraint({ name: 'publicSpaSlug', async: false })
 class PublicSpaSlugConstraint implements ValidatorConstraintInterface {
@@ -45,6 +46,10 @@ export class CreateSpaDto {
   @ApiProperty({ enum: SPA_PLANS, example: 'BASIC' })
   @IsIn(SPA_PLANS)
   plan!: (typeof SPA_PLANS)[number];
+  @ApiProperty({ enum: SPA_KINDS, required: false, default: 'SPA' })
+  @IsOptional()
+  @IsIn(SPA_KINDS)
+  kind?: (typeof SPA_KINDS)[number];
 }
 export class UpdateSpaDto extends PartialType(CreateSpaDto) {
   @ApiProperty({ enum: SpaStatus, required: false })

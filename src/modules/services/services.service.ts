@@ -15,6 +15,7 @@ import {
 } from './dto/service-category.dto';
 import { CreateServiceDto, UpdateServiceDto } from './dto/service.dto';
 import { normalizeExtraCommission } from './extra-commission';
+import { businessCapabilities } from '../spas/business-kind';
 
 const categorySelection = { select: { id: true, name: true } } as const;
 
@@ -87,11 +88,21 @@ export class ServicesService {
       select: { id: true, name: true, sortOrder: true },
     });
   }
+  private async assertCategories(spaId: string) {
+    const spa = await this.prisma.spa.findUniqueOrThrow({
+      where: { id: spaId },
+      select: { kind: true },
+    });
+    if (!businessCapabilities(spa?.kind).serviceCategories) {
+      throw new BadRequestException('Este negocio usa un catálogo sin categorías.');
+    }
+  }
   async createCategory(
     spaId: string,
     actorUserId: string,
     dto: CreateServiceCategoryDto,
   ) {
+    await this.assertCategories(spaId);
     const { name, normalizedName } = this.categoryName(dto.name);
     const last = await this.prisma.serviceCategory.findFirst({
       where: { spaId },
@@ -132,6 +143,7 @@ export class ServicesService {
     id: string,
     dto: UpdateServiceCategoryDto,
   ) {
+    await this.assertCategories(spaId);
     const current = await this.prisma.serviceCategory.findFirst({
       where: { id, spaId },
     });
@@ -162,6 +174,7 @@ export class ServicesService {
     return category;
   }
   async deleteCategory(spaId: string, actorUserId: string, id: string) {
+    await this.assertCategories(spaId);
     const current = await this.prisma.serviceCategory.findFirst({
       where: { id, spaId },
     });

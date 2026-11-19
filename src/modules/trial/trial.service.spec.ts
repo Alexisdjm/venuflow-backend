@@ -5,6 +5,7 @@ const dto = {
   spaName: 'Emi Nails',
   slug: 'emi-nails-prueba',
   country: 'VE' as const,
+  kind: 'SPA' as const,
   firstName: 'Ana',
   lastName: 'Pérez',
   email: 'ana@gmail.com',
