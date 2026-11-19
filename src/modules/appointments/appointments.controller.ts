@@ -59,6 +59,10 @@ export class AppointmentsController {
   ) {
     return this.bundles.create(u, d);
   }
+  @Get(':id/package-options')
+  packageOptions(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
+    return this.appointments.packageOptions(u, id);
+  }
   @Get(':id/visit-availability')
   visitAvailability(
     @CurrentUser() u: AuthUser,

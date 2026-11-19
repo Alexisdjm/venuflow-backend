@@ -35,6 +35,7 @@ describe('Public service policy', () => {
     [{ durationMinutes: null }, true, 'INVALID_DURATION'],
     [{ durationMinutes: 0 }, true, 'INVALID_DURATION'],
     [{ priceType: 'VARIABLE' }, true, 'VARIABLE_PRICE'],
+    [{ offering: 'PACKAGE' }, true, 'PACKAGE'],
     [{}, false, 'NO_ACTIVE_PROFESSIONAL'],
   ] as const)(
     'explains an unavailable service: %j',

@@ -64,6 +64,7 @@ export class ProfessionalsService {
             role: true,
           },
         },
+        schedules: { where: { isActive: true }, select: { dayOfWeek: true } },
       },
     });
     if (!p) throw new NotFoundException('No se encontró la profesional');
