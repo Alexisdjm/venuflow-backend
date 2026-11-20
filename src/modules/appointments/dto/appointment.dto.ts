@@ -32,6 +32,7 @@ export class CreateAppointmentDto {
   durationMinutes?: number;
   @IsOptional() @IsDecimal({ decimal_digits: '0,2' }) additionalPrice?: string;
   @IsOptional() @IsUUID() customerId?: string;
+  @IsOptional() @IsUUID() customerPackageId?: string;
   @ValidateIf((dto: CreateAppointmentDto) => !dto.customerId)
   @IsString()
   @MinLength(2)

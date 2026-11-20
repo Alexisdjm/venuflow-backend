@@ -1,0 +1,5 @@
+ALTER TABLE "Professional"
+  ADD COLUMN "phone" VARCHAR(15) NOT NULL DEFAULT '',
+  ADD COLUMN "address" VARCHAR(200);
+
+ALTER TABLE "Professional" ALTER COLUMN "phone" DROP DEFAULT;

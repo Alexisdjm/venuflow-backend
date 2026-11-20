@@ -64,6 +64,7 @@ export class ProfessionalsService {
             role: true,
           },
         },
+        schedules: { where: { isActive: true }, select: { dayOfWeek: true } },
       },
     });
     if (!p) throw new NotFoundException('No se encontró la profesional');
@@ -106,6 +107,8 @@ export class ProfessionalsService {
             spaId,
             userId: user.id,
             displayName: d.displayName,
+            phone: d.phone,
+            address: d.address,
             commissionRate: this.rate(d.commissionRate),
           },
           include: {
@@ -160,6 +163,8 @@ export class ProfessionalsService {
         spaId,
         userId: actorUserId,
         displayName: d.displayName,
+        phone: d.phone,
+        address: d.address,
         commissionRate: this.rate(d.commissionRate),
       },
       include: {
@@ -202,6 +207,8 @@ export class ProfessionalsService {
         where: { id_spaId: { id, spaId } },
         data: {
           displayName: d.displayName,
+          phone: d.phone,
+          address: d.address,
           isActive: d.isActive,
           commissionRate:
             d.commissionRate === undefined

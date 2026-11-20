@@ -17,11 +17,14 @@ export function publicServiceEligibility(
     durationType: string;
     durationMinutes: number | null;
     priceType: string;
+    offering?: string;
   },
   hasActiveProfessional = true,
 ) {
   const reason = !service.isActive
     ? 'INACTIVE'
+    : service.offering === 'PACKAGE'
+      ? 'PACKAGE'
     : service.durationType !== 'FIXED'
       ? 'VARIABLE_DURATION'
       : !service.durationMinutes || service.durationMinutes <= 0
@@ -35,6 +38,7 @@ export function publicServiceEligibility(
     INACTIVE: 'Servicio desactivado.',
     VARIABLE_DURATION: 'La duración requiere evaluación en el spa.',
     INVALID_DURATION: 'El servicio no tiene una duración válida.',
+    PACKAGE: 'Este servicio se agenda por sesiones en el establecimiento.',
     VARIABLE_PRICE: 'El precio requiere evaluación en el spa.',
     NO_ACTIVE_PROFESSIONAL:
       'No hay profesionales habilitados para este servicio.',

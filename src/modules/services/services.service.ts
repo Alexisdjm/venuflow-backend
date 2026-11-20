@@ -25,6 +25,55 @@ export class ServicesService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
   ) {}
+  private packageFields(
+    dto: {
+      offering?: 'SINGLE' | 'PACKAGE';
+      sessionCount?: number;
+      validityDays?: number | null;
+      priceType?: 'FIXED' | 'VARIABLE';
+      defaultSessionsPerWeek?: number | null;
+    },
+    current?: {
+      offering: 'SINGLE' | 'PACKAGE';
+      sessionCount: number;
+      validityDays: number | null;
+      priceType: 'FIXED' | 'VARIABLE';
+      defaultSessionsPerWeek?: number | null;
+    },
+  ) {
+    const offering = dto.offering ?? current?.offering ?? 'SINGLE';
+    if (offering === 'SINGLE') {
+      return {
+        offering: 'SINGLE' as const,
+        sessionCount: 1,
+        validityDays: null,
+        defaultSessionsPerWeek: null,
+      };
+    }
+    const priceType = dto.priceType ?? current?.priceType ?? 'FIXED';
+    if (priceType === 'VARIABLE') {
+      throw new BadRequestException('Un paquete de sesiones usa un precio fijo.');
+    }
+    const sessionCount = dto.sessionCount ?? current?.sessionCount;
+    if (!sessionCount || sessionCount < 2 || sessionCount > 10) {
+      throw new BadRequestException('El paquete puede tener entre 2 y 10 sesiones.');
+    }
+    const validityDays = dto.validityDays === undefined ? current?.validityDays ?? null : dto.validityDays;
+    if (validityDays != null && ![10, 15, 18, 21].includes(validityDays)) {
+      throw new BadRequestException('La inactividad se configura en 10, 15, 18 o 21 días.');
+    }
+    const defaultSessionsPerWeek =
+      dto.defaultSessionsPerWeek === undefined
+        ? current?.defaultSessionsPerWeek ?? null
+        : dto.defaultSessionsPerWeek;
+    return {
+      offering: 'PACKAGE' as const,
+      sessionCount,
+      validityDays,
+      priceType: 'FIXED' as const,
+      defaultSessionsPerWeek,
+    };
+  }
   private money(value: string) {
     const amount = new Prisma.Decimal(value);
     if (amount.lt(0))
@@ -208,6 +257,7 @@ export class ServicesService {
       );
     await this.validateDuration(spaId, dto.durationMinutes);
     await this.requireCategory(spaId, dto.categoryId);
+    const packageFields = this.packageFields(dto);
     const service = await this.prisma.spaService
       .create({
         data: {
@@ -218,6 +268,7 @@ export class ServicesService {
           durationMinutes:
             durationType === 'VARIABLE' ? null : dto.durationMinutes,
           price: this.money(dto.price),
+          ...packageFields,
           ...normalizeExtraCommission(dto.extraCommission, dto.extraCommissionRate),
         },
         include: { category: categorySelection },
@@ -260,6 +311,7 @@ export class ServicesService {
       );
     await this.validateDuration(spaId, durationMinutes ?? undefined);
     if (dto.categoryId) await this.requireCategory(spaId, dto.categoryId);
+    const packageFields = this.packageFields(dto, current);
     const service = await this.prisma.spaService
       .update({
         where: { id_spaId: { id, spaId } },
@@ -267,6 +319,7 @@ export class ServicesService {
           ...dto,
           durationType,
           durationMinutes,
+          ...packageFields,
           price: dto.price === undefined ? undefined : this.money(dto.price),
           ...normalizeExtraCommission(
             dto.extraCommission,
