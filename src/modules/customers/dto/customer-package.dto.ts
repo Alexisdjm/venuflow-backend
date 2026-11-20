@@ -5,9 +5,14 @@ import {
   IsDivisibleBy,
   IsIn,
   IsInt,
+  IsEmail,
   IsISO8601,
   IsOptional,
+  IsString,
   IsUUID,
+  Matches,
+  MaxLength,
+  MinLength,
   Max,
   Min,
   ValidateIf,
@@ -33,7 +38,16 @@ export class PackagePlanDto {
   @Max(720)
   @IsDivisibleBy(30)
   durationMinutes?: number;
-  @IsOptional() @IsDecimal({ decimal_digits: '0,2' }) paidAmount?: string;
+  @IsOptional() @IsUUID() customerId?: string;
+  @IsOptional() @IsString() @MinLength(2) @MaxLength(120) customerName?: string;
+  @IsOptional() @Matches(/^\d{7,8}$/) customerNationalId?: string;
+  @IsOptional() @IsString() @MinLength(5) @MaxLength(40) customerPhone?: string;
+  @IsOptional() @IsEmail() customerEmail?: string;
+  @IsOptional()
+  @IsArray()
+  @ArrayUnique()
+  @IsISO8601({ strict: true }, { each: true })
+  sessionStarts?: string[];
 }
 
 export class AssignPackageDto {

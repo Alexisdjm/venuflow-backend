@@ -29,6 +29,7 @@ const labels: Record<string, string> = {
   password: 'La contraseña',
   paymentMethod: 'La forma de pago',
   phone: 'El teléfono',
+  address: 'La dirección',
   price: 'El precio',
   professionalId: 'La profesional',
   serviceId: 'El servicio',

@@ -545,7 +545,8 @@ export class AppointmentsService {
     const targetProfessionalId = d.professionalId ?? current.professionalId;
     let startAt: Date | undefined,
       endAt: Date | undefined,
-      appointmentDate: Date | undefined;
+      appointmentDate: Date | undefined,
+      dayChanged = false;
     let commissionRate: Prisma.Decimal | undefined;
     if (d.startAt || d.professionalId) {
       if (current.status !== 'CONFIRMED')
@@ -610,8 +611,10 @@ export class AppointmentsService {
       endAt = slot.end.toUTC().toJSDate();
       appointmentDate = new Date(`${slot.local.toISODate()}T00:00:00.000Z`);
       const moved = slot.start.toUTC().toMillis() !== current.startAt.getTime();
+      const currentLocal = DateTime.fromJSDate(current.startAt, { zone: spa.timezone });
+      dayChanged = slot.local.toISODate() !== currentLocal.toISODate();
       if (current.customerPackageId && moved) {
-        await this.assertPackageMove(spa, current, slot.local);
+        if (dayChanged) await this.assertPackageMove(spa, current, slot.local);
         await this.assertPackageWeek(
           spaId,
           current.customerPackageId,
@@ -641,9 +644,7 @@ export class AppointmentsService {
           appointmentDate,
           professionalId: d.professionalId,
           commissionRate,
-          ...(current.customerPackageId &&
-          startAt &&
-          startAt.getTime() !== current.startAt.getTime()
+          ...(current.customerPackageId && dayChanged
             ? { rescheduleCount: { increment: 1 } }
             : {}),
         },
@@ -1054,10 +1055,12 @@ export class AppointmentsService {
       select: { timezone: true },
     });
     const options = await this.rescheduleOptions(spa.timezone, current);
+    const currentDate = DateTime.fromJSDate(current.startAt, { zone: spa.timezone }).toISODate();
     return {
       remaining: Math.max(0, options.maxReschedules - current.rescheduleCount),
       maxReschedules: options.maxReschedules,
-      dates: [...options.dates].sort(),
+      currentDate,
+      dates: [...new Set([...(currentDate ? [currentDate] : []), ...options.dates])].sort(),
     };
   }
 

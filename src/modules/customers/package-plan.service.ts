@@ -24,8 +24,9 @@ export class PackagePlanService {
     private readonly audit: AuditService,
   ) {}
 
-  async preview(spaId: string, customerId: string, dto: PackagePlanDto) {
-    const planned = await this.plan(spaId, customerId, dto);
+  async preview(spaId: string, customerId: string | undefined, dto: PackagePlanDto) {
+    const customer = await this.resolveCustomer(spaId, customerId, dto, false);
+    const planned = await this.plan(spaId, customer, dto);
     return {
       sessionCount: planned.service.sessionCount,
       sessionsPerWeek: planned.weekdays.length,
@@ -43,19 +44,20 @@ export class PackagePlanService {
   async confirm(
     spaId: string,
     actorUserId: string,
-    customerId: string,
+    customerId: string | undefined,
     dto: PackagePlanDto,
   ) {
-    const planned = await this.plan(spaId, customerId, dto);
-    if (!planned.sessions.length)
+    const customer = await this.resolveCustomer(spaId, customerId, dto, true);
+    const planned = await this.plan(spaId, customer, dto);
+    const sessions = await this.adjustedSessions(spaId, planned, dto.sessionStarts);
+    if (!sessions.length)
       throw new ConflictException('No hay horarios para ese plan.');
     const price = planned.service.price;
-    const paid = this.optionalMoney(dto.paidAmount, price);
     const created = await this.prisma.$transaction(async (tx) => {
       const pack = await tx.customerPackage.create({
         data: {
           spaId,
-          customerId,
+          customerId: customer.id,
           serviceId: planned.service.id,
           name: planned.service.name,
           sessionCount: planned.service.sessionCount,
@@ -74,7 +76,7 @@ export class PackagePlanService {
         WHERE id = CAST(${pack.id} AS uuid) AND "spaId" = CAST(${spaId} AS uuid)
         FOR UPDATE
       `;
-      for (const session of planned.sessions) {
+      for (const session of sessions) {
         const appointmentDate = new Date(`${session.start.toISODate()}T00:00:00.000Z`);
         const conflict = await this.scheduling.conflictingAppointment(
           {
@@ -93,7 +95,7 @@ export class PackagePlanService {
           await this.scheduling.categoryTaken(
             {
               spaId,
-              customerId,
+              customerId: customer.id,
               appointmentDate,
               categoryId: planned.service.categoryId,
             },
@@ -108,7 +110,7 @@ export class PackagePlanService {
             spaId,
             professionalId: planned.professionalId,
             serviceId: planned.service.id,
-            customerId,
+            customerId: customer.id,
             customerPackageId: pack.id,
             customerName: planned.customer.name,
             customerPhone: planned.customer.phone,
@@ -126,10 +128,9 @@ export class PackagePlanService {
           },
         });
       }
-      if (paid)
-        await tx.packagePayment.create({
-          data: { spaId, customerPackageId: pack.id, amount: paid },
-        });
+      await tx.packagePayment.create({
+        data: { spaId, customerPackageId: pack.id, amount: price },
+      });
       return tx.customerPackage.findUniqueOrThrow({
         where: { id: pack.id },
         include: {
@@ -145,23 +146,130 @@ export class PackagePlanService {
       entityType: 'CustomerPackage',
       entityId: created.id,
       metadata: {
-        customerId,
+        customerId: customer.id,
         serviceId: planned.service.id,
-        scheduled: planned.sessions.length,
+        scheduled: sessions.length,
       },
     });
     return {
       id: created.id,
-      scheduled: planned.sessions.length,
+      scheduled: sessions.length,
       missing: planned.missing,
     };
   }
 
-  private async plan(spaId: string, customerId: string, dto: PackagePlanDto) {
-    const customer = await this.prisma.customer.findUnique({
-      where: { id_spaId: { id: customerId, spaId } },
+  private async adjustedSessions(
+    spaId: string,
+    planned: {
+      professionalId: string;
+      sessions: { start: DateTime; end: DateTime }[];
+    },
+    starts: string[] | undefined,
+  ) {
+    if (!starts?.length) return planned.sessions;
+    if (starts.length !== planned.sessions.length)
+      throw new BadRequestException('El plan editado no coincide con las sesiones.');
+    const durationMinutes = Math.round(
+      planned.sessions[0].end.diff(planned.sessions[0].start).as('minutes'),
+    );
+    const spa = await this.prisma.spa.findUniqueOrThrow({
+      where: { id: spaId },
+      select: {
+        timezone: true,
+        openingMinute: true,
+        closingMinute: true,
+        walkInGraceMinutes: true,
+      },
     });
-    if (!customer) throw new NotFoundException('No se encontró el cliente');
+    const allowed = new Set(
+      planned.sessions.map((session) => session.start.toISODate()).filter((date): date is string => Boolean(date)),
+    );
+    const claimed = new Set<string>();
+    const adjusted: { start: DateTime; end: DateTime }[] = [];
+    for (const startAt of starts) {
+      const slot = this.scheduling.dashboardSlot(spa, startAt, durationMinutes);
+      const date = slot.local.toISODate();
+      if (!date || !allowed.has(date) || claimed.has(date))
+        throw new BadRequestException(
+          'Solo se puede cambiar la hora dentro del mismo día de cada sesión.',
+        );
+      const shift = await this.scheduling.shiftCovering(
+        spaId,
+        planned.professionalId,
+        slot.local.weekday % 7,
+        slot.startMinute,
+        slot.endMinute,
+      );
+      if (!shift)
+        throw new ConflictException('El nuevo horario está fuera de la jornada.');
+      claimed.add(date);
+      adjusted.push({
+        start: slot.local,
+        end: slot.local.plus({ minutes: durationMinutes }),
+      });
+    }
+    return adjusted;
+  }
+
+  private async resolveCustomer(
+    spaId: string,
+    customerId: string | undefined,
+    dto: PackagePlanDto,
+    create: boolean,
+  ) {
+    const id = customerId ?? dto.customerId;
+    if (id) {
+      const customer = await this.prisma.customer.findUnique({
+        where: { id_spaId: { id, spaId } },
+      });
+      if (!customer) throw new NotFoundException('No se encontró el cliente');
+      return customer;
+    }
+    if (!dto.customerName || !dto.customerNationalId || !dto.customerPhone)
+      throw new BadRequestException('Registra el cliente del paquete.');
+    const existing = await this.prisma.customer.findUnique({
+      where: { spaId_nationalId: { spaId, nationalId: dto.customerNationalId } },
+    });
+    if (existing) return existing;
+    if (!create) {
+      return {
+        id: '',
+        spaId,
+        name: dto.customerName,
+        phone: dto.customerPhone,
+        nationalId: dto.customerNationalId,
+        email: dto.customerEmail ?? null,
+      };
+    }
+    try {
+      return await this.prisma.customer.create({
+        data: {
+          spaId,
+          name: dto.customerName,
+          nationalId: dto.customerNationalId,
+          phone: dto.customerPhone,
+          email: dto.customerEmail,
+        },
+      });
+    } catch (error) {
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2002'
+      ) {
+        const raced = await this.prisma.customer.findUnique({
+          where: { spaId_nationalId: { spaId, nationalId: dto.customerNationalId } },
+        });
+        if (raced) return raced;
+      }
+      throw error;
+    }
+  }
+
+  private async plan(
+    spaId: string,
+    customer: { id: string; name: string; phone: string; nationalId: string | null; email: string | null },
+    dto: PackagePlanDto,
+  ) {
     const service = await this.prisma.spaService.findUnique({
       where: { id_spaId: { id: dto.serviceId, spaId } },
     });
@@ -217,16 +325,18 @@ export class PackagePlanService {
         professionalIds: [dto.professionalId],
       }),
       this.scheduling.paymentHolds(spaId, from, until),
-      this.prisma.appointment.findMany({
-        where: {
-          spaId,
-          customerId,
-          serviceCategoryId: service.categoryId,
-          status: { not: 'CANCELLED' },
-          appointmentDate: { gte: from, lt: until },
-        },
-        select: { appointmentDate: true },
-      }),
+      customer.id
+        ? this.prisma.appointment.findMany({
+            where: {
+              spaId,
+              customerId: customer.id,
+              serviceCategoryId: service.categoryId,
+              status: { not: 'CANCELLED' },
+              appointmentDate: { gte: from, lt: until },
+            },
+            select: { appointmentDate: true },
+          })
+        : Promise.resolve([]),
     ]);
     const placed = placePackageSessions({
       firstStart: slot.local,
@@ -272,14 +382,4 @@ export class PackagePlanService {
     return unique;
   }
 
-  private optionalMoney(value: string | undefined, limit: Prisma.Decimal) {
-    if (value === undefined || value.trim() === '') return null;
-    const amount = new Prisma.Decimal(value);
-    if (amount.isNegative())
-      throw new BadRequestException('El abono no puede ser negativo.');
-    if (amount.isZero()) return null;
-    if (amount.greaterThan(limit))
-      throw new BadRequestException('El abono supera el precio del paquete.');
-    return amount;
-  }
 }

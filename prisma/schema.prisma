@@ -172,6 +172,8 @@ model Professional {
   appointments   Appointment[]
   bookingRequests BookingRequest[] @relation("RequestedProfessional")
   displayName    String
+  phone          String   @default("") @db.VarChar(15)
+  address        String?  @db.VarChar(200)
   commissionRate Decimal  @db.Decimal(5, 2)
   isActive       Boolean  @default(true)
   createdAt      DateTime @default(now())

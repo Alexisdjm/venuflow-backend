@@ -110,6 +110,7 @@ export class TrialService {
               spaId: spa.id,
               userId: admin.id,
               displayName: `${dto.firstName.trim()} ${dto.lastName.trim()}`,
+              phone,
               commissionRate: new Prisma.Decimal(0),
             },
           });
@@ -132,6 +133,7 @@ export class TrialService {
               spaId: spa.id,
               userId: extraUser.id,
               displayName: person.name,
+              phone: person.phone,
               commissionRate: new Prisma.Decimal(0),
             },
           });
