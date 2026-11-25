@@ -16,6 +16,7 @@ import {
 } from './dto/customer-package.dto';
 import { UpdateCustomerDto } from './dto/update-customer.dto';
 import { PackageInactivityService } from './package-inactivity.service';
+import { assertPackageSessionCount } from './package-session-count';
 
 @Injectable()
 export class CustomersService {
@@ -202,6 +203,7 @@ export class CustomersService {
       throw new BadRequestException(
         'Elige un servicio activo de varias sesiones.',
       );
+    assertPackageSessionCount(dto.sessionCount);
     const price = service.price;
     const paid = this.optionalMoney(dto.paidAmount, price);
     const expiresAt = service.validityDays
@@ -214,9 +216,9 @@ export class CustomersService {
           customerId,
           serviceId: service.id,
           name: service.name,
-          sessionCount: service.sessionCount,
+          sessionCount: dto.sessionCount,
           price,
-          sessionValue: price.div(service.sessionCount).toDecimalPlaces(2),
+          sessionValue: price.div(dto.sessionCount).toDecimalPlaces(2),
           expiresAt,
         },
       });

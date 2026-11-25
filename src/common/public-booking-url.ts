@@ -19,7 +19,8 @@ export function readBookingUrlConfig(
 ): BookingUrlSettings {
   const base = parseBase(get('PUBLIC_BOOKING_BASE_URL'));
   const configuredRoot = asHostname(get('PUBLIC_BOOKING_ROOT_DOMAIN'));
-  const rootDomain = configuredRoot ?? asHostname(base?.hostname) ?? 'localhost';
+  const rootDomain =
+    configuredRoot ?? asHostname(base?.hostname) ?? 'localhost';
   const configuredProtocol = asProtocol(get('PUBLIC_BOOKING_PROTOCOL'));
   const protocol =
     configuredProtocol ??
@@ -31,7 +32,10 @@ export function readBookingUrlConfig(
 
 function bookingHost(settings: BookingUrlSettings) {
   const port = settings.port ? `:${settings.port}` : '';
-  if (settings.rootDomain === 'localhost' || settings.rootDomain === '127.0.0.1') {
+  if (
+    settings.rootDomain === 'localhost' ||
+    settings.rootDomain === '127.0.0.1'
+  ) {
     return `${settings.protocol}://${settings.rootDomain}${port}`;
   }
   return `${settings.protocol}://form.${settings.rootDomain}${port}`;

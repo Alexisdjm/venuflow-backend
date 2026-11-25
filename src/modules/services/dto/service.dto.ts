@@ -29,11 +29,6 @@ export class CreateServiceDto {
   durationMinutes?: number;
   @IsOptional() @IsIn(['FIXED', 'VARIABLE']) priceType?: 'FIXED' | 'VARIABLE';
   @IsOptional() @IsIn(['SINGLE', 'PACKAGE']) offering?: 'SINGLE' | 'PACKAGE';
-  @ValidateIf((dto: CreateServiceDto) => dto.offering === 'PACKAGE')
-  @IsInt()
-  @Min(2)
-  @Max(10)
-  sessionCount?: number;
   @IsOptional() @IsIn([10, 15, 18, 21]) validityDays?: number | null;
   @IsOptional() @IsInt() @Min(1) @Max(5) defaultSessionsPerWeek?: number | null;
   @IsDecimal({ decimal_digits: '0,2' }) price!: string;

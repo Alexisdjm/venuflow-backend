@@ -14,7 +14,10 @@ import {
   DEFAULT_SERVICE_CATEGORIES,
   normalizeCategoryName,
 } from '../services/default-categories';
-import { IMPLICIT_CATEGORY_NAME, businessCapabilities } from '../spas/business-kind';
+import {
+  IMPLICIT_CATEGORY_NAME,
+  businessCapabilities,
+} from '../spas/business-kind';
 import { CreateTrialDto } from './dto/create-trial.dto';
 import { trialPlace } from './trial-places';
 
@@ -32,7 +35,10 @@ export class TrialService {
   async slugAvailable(slug: string) {
     const clean = slug.trim().toLowerCase();
     if (!isPublicSpaSlug(clean)) return { available: false };
-    const existing = await this.prisma.spa.findUnique({ where: { slug: clean }, select: { id: true } });
+    const existing = await this.prisma.spa.findUnique({
+      where: { slug: clean },
+      select: { id: true },
+    });
     return { available: !existing };
   }
 
@@ -50,23 +56,43 @@ export class TrialService {
       throw new BadRequestException('Indica al menos una persona que atiende.');
     }
     if (extras.some((person) => person.email === email)) {
-      throw new BadRequestException('Usa un correo distinto para cada profesional.');
+      throw new BadRequestException(
+        'Usa un correo distinto para cada profesional.',
+      );
     }
     if (new Set(extras.map((person) => person.email)).size !== extras.length) {
-      throw new BadRequestException('Cada profesional necesita un correo distinto.');
+      throw new BadRequestException(
+        'Cada profesional necesita un correo distinto.',
+      );
     }
-    if (extras.some((person) => person.phone === phone) || new Set(extras.map((person) => person.phone)).size !== extras.length) {
-      throw new BadRequestException('Cada profesional necesita un teléfono distinto.');
+    if (
+      extras.some((person) => person.phone === phone) ||
+      new Set(extras.map((person) => person.phone)).size !== extras.length
+    ) {
+      throw new BadRequestException(
+        'Cada profesional necesita un teléfono distinto.',
+      );
     }
     const fullCatalog = businessCapabilities(dto.kind).serviceCategories;
     if (fullCatalog && dto.services.some((service) => !service.category)) {
       throw new BadRequestException('Elige una categoría de la lista.');
     }
-    const names = new Set(dto.services.map((service) => service.name.trim().toLocaleLowerCase('es')));
+    const names = new Set(
+      dto.services.map((service) =>
+        service.name.trim().toLocaleLowerCase('es'),
+      ),
+    );
     if (names.size !== dto.services.length) {
-      throw new BadRequestException('Los servicios deben tener nombres distintos.');
+      throw new BadRequestException(
+        'Los servicios deben tener nombres distintos.',
+      );
     }
-    await this.assertAllowed(email, phone, ipAddress, extras.map((person) => person.email));
+    await this.assertAllowed(
+      email,
+      phone,
+      ipAddress,
+      extras.map((person) => person.email),
+    );
 
     const passwordHash = await argon2.hash(dto.password);
     let created: { adminId: string; spaId: string } | undefined;
@@ -83,7 +109,9 @@ export class TrialService {
             status: 'ACTIVE',
           },
         });
-        const categoryNames = fullCatalog ? DEFAULT_SERVICE_CATEGORIES : [IMPLICIT_CATEGORY_NAME];
+        const categoryNames = fullCatalog
+          ? DEFAULT_SERVICE_CATEGORIES
+          : [IMPLICIT_CATEGORY_NAME];
         await tx.serviceCategory.createMany({
           data: categoryNames.map((name, sortOrder) => ({
             spaId: spa.id,
@@ -92,7 +120,9 @@ export class TrialService {
             sortOrder,
           })),
         });
-        const categories = await tx.serviceCategory.findMany({ where: { spaId: spa.id } });
+        const categories = await tx.serviceCategory.findMany({
+          where: { spaId: spa.id },
+        });
         const admin = await tx.user.create({
           data: {
             spaId: spa.id,
@@ -124,7 +154,9 @@ export class TrialService {
               firstName: first,
               lastName: rest.join(' ') || 'Profesional',
               email: person.email,
-              passwordHash: await argon2.hash(randomBytes(24).toString('base64url')),
+              passwordHash: await argon2.hash(
+                randomBytes(24).toString('base64url'),
+              ),
               role: 'PROFESSIONAL',
             },
           });
@@ -143,7 +175,8 @@ export class TrialService {
           const category = fullCatalog
             ? categories.find((item) => item.name === service.category)
             : categories[0];
-          if (!category) throw new BadRequestException('Elige una categoría de la lista.');
+          if (!category)
+            throw new BadRequestException('Elige una categoría de la lista.');
           const created = await tx.spaService.create({
             data: {
               spaId: spa.id,
@@ -180,12 +213,20 @@ export class TrialService {
         return { adminId: admin.id, spaId: spa.id };
       });
     } catch (error) {
-      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2002'
+      ) {
         const target = String(error.meta?.target ?? '');
-        if (target.includes('slug')) throw new ConflictException('Ya existe un spa con esa dirección.');
-        if (target.includes('phone')) throw new ConflictException('Este teléfono ya tiene una prueba.');
-        if (target.includes('email')) throw new ConflictException('Ese correo ya está registrado.');
-        throw new ConflictException('No se pudo crear la prueba con esos datos.');
+        if (target.includes('slug'))
+          throw new ConflictException('Ya existe un spa con esa dirección.');
+        if (target.includes('phone'))
+          throw new ConflictException('Este teléfono ya tiene una prueba.');
+        if (target.includes('email'))
+          throw new ConflictException('Ese correo ya está registrado.');
+        throw new ConflictException(
+          'No se pudo crear la prueba con esos datos.',
+        );
       }
       throw error;
     }
@@ -211,27 +252,48 @@ export class TrialService {
     ipAddress: string,
     extraEmails: string[] = [],
   ) {
-    const [user, extraUsers, phoneUsed, dayCount, weekCount] = await Promise.all([
-      this.prisma.user.findUnique({ where: { email }, select: { id: true } }),
-      extraEmails.length
-        ? this.prisma.user.findMany({ where: { email: { in: extraEmails } }, select: { id: true } })
-        : Promise.resolve([]),
-      this.prisma.trialSignup.findUnique({ where: { phone }, select: { id: true } }),
-      this.prisma.trialSignup.count({
-        where: { ipAddress, createdAt: { gte: new Date(Date.now() - DAY_MS) } },
-      }),
-      this.prisma.trialSignup.count({
-        where: { ipAddress, createdAt: { gte: new Date(Date.now() - WEEK_MS) } },
-      }),
-    ]);
+    const [user, extraUsers, phoneUsed, dayCount, weekCount] =
+      await Promise.all([
+        this.prisma.user.findUnique({ where: { email }, select: { id: true } }),
+        extraEmails.length
+          ? this.prisma.user.findMany({
+              where: { email: { in: extraEmails } },
+              select: { id: true },
+            })
+          : Promise.resolve([]),
+        this.prisma.trialSignup.findUnique({
+          where: { phone },
+          select: { id: true },
+        }),
+        this.prisma.trialSignup.count({
+          where: {
+            ipAddress,
+            createdAt: { gte: new Date(Date.now() - DAY_MS) },
+          },
+        }),
+        this.prisma.trialSignup.count({
+          where: {
+            ipAddress,
+            createdAt: { gte: new Date(Date.now() - WEEK_MS) },
+          },
+        }),
+      ]);
     if (user) throw new ConflictException('Ese correo ya está registrado.');
-    if (extraUsers.length) throw new ConflictException('El correo de una profesional ya está registrado.');
-    if (phoneUsed) throw new ConflictException('Este teléfono ya tiene una prueba.');
+    if (extraUsers.length)
+      throw new ConflictException(
+        'El correo de una profesional ya está registrado.',
+      );
+    if (phoneUsed)
+      throw new ConflictException('Este teléfono ya tiene una prueba.');
     if (dayCount >= 1) {
-      throw new ConflictException('Ya se abrió una prueba desde esta conexión. Puedes intentar de nuevo mañana.');
+      throw new ConflictException(
+        'Ya se abrió una prueba desde esta conexión. Puedes intentar de nuevo mañana.',
+      );
     }
     if (weekCount >= 3) {
-      throw new ConflictException('Esta conexión ya abrió varias pruebas esta semana.');
+      throw new ConflictException(
+        'Esta conexión ya abrió varias pruebas esta semana.',
+      );
     }
   }
 }

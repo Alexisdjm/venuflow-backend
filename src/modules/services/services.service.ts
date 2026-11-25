@@ -28,14 +28,12 @@ export class ServicesService {
   private packageFields(
     dto: {
       offering?: 'SINGLE' | 'PACKAGE';
-      sessionCount?: number;
       validityDays?: number | null;
       priceType?: 'FIXED' | 'VARIABLE';
       defaultSessionsPerWeek?: number | null;
     },
     current?: {
       offering: 'SINGLE' | 'PACKAGE';
-      sessionCount: number;
       validityDays: number | null;
       priceType: 'FIXED' | 'VARIABLE';
       defaultSessionsPerWeek?: number | null;
@@ -54,10 +52,6 @@ export class ServicesService {
     if (priceType === 'VARIABLE') {
       throw new BadRequestException('Un paquete de sesiones usa un precio fijo.');
     }
-    const sessionCount = dto.sessionCount ?? current?.sessionCount;
-    if (!sessionCount || sessionCount < 2 || sessionCount > 10) {
-      throw new BadRequestException('El paquete puede tener entre 2 y 10 sesiones.');
-    }
     const validityDays = dto.validityDays === undefined ? current?.validityDays ?? null : dto.validityDays;
     if (validityDays != null && ![10, 15, 18, 21].includes(validityDays)) {
       throw new BadRequestException('La inactividad se configura en 10, 15, 18 o 21 días.');
@@ -68,7 +62,7 @@ export class ServicesService {
         : dto.defaultSessionsPerWeek;
     return {
       offering: 'PACKAGE' as const,
-      sessionCount,
+      sessionCount: 1,
       validityDays,
       priceType: 'FIXED' as const,
       defaultSessionsPerWeek,

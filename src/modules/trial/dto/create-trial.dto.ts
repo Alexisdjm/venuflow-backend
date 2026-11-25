@@ -45,7 +45,9 @@ export class TrialServiceDto {
   name!: string;
 
   @IsOptional()
-  @IsIn(DEFAULT_SERVICE_CATEGORIES, { message: 'Elige una categoría de la lista.' })
+  @IsIn(DEFAULT_SERVICE_CATEGORIES, {
+    message: 'Elige una categoría de la lista.',
+  })
   category?: (typeof DEFAULT_SERVICE_CATEGORIES)[number];
 
   @IsInt()
@@ -55,7 +57,10 @@ export class TrialServiceDto {
   durationMinutes!: number;
 
   @Type(() => Number)
-  @IsNumber({ maxDecimalPlaces: 2 }, { message: 'El precio admite hasta dos decimales.' })
+  @IsNumber(
+    { maxDecimalPlaces: 2 },
+    { message: 'El precio admite hasta dos decimales.' },
+  )
   @Min(0.01, { message: 'El precio debe ser mayor que cero.' })
   @Max(100000)
   price!: number;
@@ -71,7 +76,9 @@ export class TrialProfessionalDto {
   @IsMailboxProvider()
   email!: string;
 
-  @Transform(({ value }) => (typeof value === 'string' ? value.replace(/\D/g, '') : value))
+  @Transform(({ value }) =>
+    typeof value === 'string' ? value.replace(/\D/g, '') : value,
+  )
   @Matches(/^\d{10,15}$/, { message: 'Usa un teléfono de 10 a 15 dígitos.' })
   phone!: string;
 }
@@ -82,7 +89,10 @@ export class CreateTrialDto {
   @MaxLength(120)
   spaName!: string;
 
-  @Matches(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, { message: 'La dirección solo puede usar letras minúsculas, números y guiones.' })
+  @Matches(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, {
+    message:
+      'La dirección solo puede usar letras minúsculas, números y guiones.',
+  })
   @MaxLength(48)
   @Validate(PublicSlugConstraint)
   slug!: string;
@@ -108,11 +118,15 @@ export class CreateTrialDto {
   email!: string;
 
   @IsString()
-  @MinLength(12, { message: 'La contraseña debe tener al menos 12 caracteres.' })
+  @MinLength(12, {
+    message: 'La contraseña debe tener al menos 12 caracteres.',
+  })
   @MaxLength(128)
   password!: string;
 
-  @Transform(({ value }) => (typeof value === 'string' ? value.replace(/\D/g, '') : value))
+  @Transform(({ value }) =>
+    typeof value === 'string' ? value.replace(/\D/g, '') : value,
+  )
   @Matches(/^\d{10,15}$/, { message: 'Usa un teléfono de 10 a 15 dígitos.' })
   phone!: string;
 
@@ -120,13 +134,17 @@ export class CreateTrialDto {
   ownerProvidesService!: boolean;
 
   @IsOptional()
-  @ArrayMaxSize(30, { message: 'En la prueba puedes agregar hasta 30 profesionales.' })
+  @ArrayMaxSize(30, {
+    message: 'En la prueba puedes agregar hasta 30 profesionales.',
+  })
   @ValidateNested({ each: true })
   @Type(() => TrialProfessionalDto)
   extraProfessionals?: TrialProfessionalDto[];
 
   @ArrayMinSize(1, { message: 'Deja al menos un servicio.' })
-  @ArrayMaxSize(2, { message: 'En la prueba puedes empezar con dos servicios.' })
+  @ArrayMaxSize(2, {
+    message: 'En la prueba puedes empezar con dos servicios.',
+  })
   @ValidateNested({ each: true })
   @Type(() => TrialServiceDto)
   services!: TrialServiceDto[];
