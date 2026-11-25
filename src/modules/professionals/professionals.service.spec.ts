@@ -74,6 +74,8 @@ describe('ProfessionalsService', () => {
       email: 'ANA@EXAMPLE.COM',
       password: 'password1234',
       displayName: 'Ana',
+      phone: '04141234567',
+      address: 'Caracas',
       commissionRate: '25',
     });
 
@@ -107,6 +109,8 @@ describe('ProfessionalsService', () => {
         email: 'ana@example.com',
         password: 'password1234',
         displayName: 'Ana',
+        phone: '04141234567',
+        address: 'Caracas',
         commissionRate: '101',
       }),
     ).rejects.toBeInstanceOf(BadRequestException);
@@ -122,6 +126,8 @@ describe('ProfessionalsService', () => {
     await expect(
       service.createForAdmin('spa', 'admin', {
         displayName: 'Admin',
+        phone: '04141234567',
+        address: 'Caracas',
         commissionRate: '20',
       }),
     ).rejects.toBeInstanceOf(ConflictException);
@@ -139,6 +145,8 @@ describe('ProfessionalsService', () => {
 
     await service.createForAdmin('spa', 'admin', {
       displayName: 'Admin',
+      phone: '04141234567',
+      address: 'Caracas',
       commissionRate: '20',
     });
 

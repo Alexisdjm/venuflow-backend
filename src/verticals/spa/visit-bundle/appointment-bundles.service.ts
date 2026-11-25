@@ -63,6 +63,10 @@ export class AppointmentBundlesService {
     for (const item of items) {
       const service = await this.service(spaId, item.serviceId);
       if (!service?.isActive) throw new NotFoundException('No se encontró el servicio');
+      if (service.offering === 'PACKAGE')
+        throw new BadRequestException(
+          'Un paquete de sesiones se agenda como una cita por sesión.',
+        );
       if (categories.has(service.categoryId))
         throw new ConflictException(
           'Una cita combinada no puede repetir la misma categoría',

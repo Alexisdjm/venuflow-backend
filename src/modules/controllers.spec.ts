@@ -155,7 +155,7 @@ describe('HTTP controllers', () => {
       update: jest.fn(),
       remove: jest.fn(),
     };
-    const controller = new CustomersController(customers as never);
+    const controller = new CustomersController(customers as never, {} as never);
     const query = { page: 1, limit: 10 } as never;
     const dto = { firstName: 'Ana' } as never;
 

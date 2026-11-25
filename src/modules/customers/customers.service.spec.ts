@@ -7,6 +7,7 @@ describe('CustomersService', () => {
     id: 'customer-id',
     name: 'Cliente de prueba',
     nationalId: '12345678',
+    customerPackages: [],
   };
 
   it('deletes only non-completed appointments before deleting a customer', async () => {
@@ -68,7 +69,12 @@ describe('CustomersService', () => {
     };
     const service = new CustomersService(prisma as never, {} as never);
 
-    await expect(service.get('spa-id', customer.id)).resolves.toBe(customer);
+    await expect(service.get('spa-id', customer.id)).resolves.toEqual({
+      id: customer.id,
+      name: customer.name,
+      nationalId: customer.nationalId,
+      packages: [],
+    });
     expect(prisma.customer.findUnique).toHaveBeenCalledWith(
       expect.objectContaining({
         where: { id_spaId: { id: customer.id, spaId: 'spa-id' } },

@@ -16,6 +16,8 @@ import { afterCommit } from '../../common/after-commit';
 import { publicSpaUrl, readBookingUrlConfig } from '../../common/public-booking-url';
 import { AuditService } from '../audit/audit.service';
 import { effectiveCommissionRate } from '../services/extra-commission';
+import { packageRescheduleDates, packageWeekBounds } from '../customers/package-plan';
+import { PackageInactivityService } from '../customers/package-inactivity.service';
 import { MailService } from '../mail/mail.service';
 import {
   pastBeyondGrace,
@@ -56,6 +58,7 @@ export class AppointmentsService {
     private scheduling: SchedulingService,
     @Optional() private mail?: MailService,
     @Optional() private config?: ConfigService,
+    @Optional() private inactivity?: PackageInactivityService,
   ) {}
   private isConcurrentBookingConflict(error: unknown) {
     if (
@@ -171,6 +174,7 @@ export class AppointmentsService {
     date?: string,
     status?: 'CONFIRMED' | 'COMPLETED' | 'CANCELLED',
   ) {
+    await this.inactivity?.sweep(u.spaId!);
     const professionalId =
       u.role === 'PROFESSIONAL' ? (await this.own(u)).id : undefined;
     let range = {};
@@ -263,7 +267,45 @@ export class AppointmentsService {
         'Indica la duración del servicio',
       );
     let servicePrice = service.price;
-    if (service.priceType === 'VARIABLE') {
+    let pack: {
+      id: string;
+      sessionCount: number;
+      sessionsPerWeek: number;
+      sessionValue: Prisma.Decimal;
+    } | null = null;
+    if (service.offering === 'PACKAGE') {
+      if (!d.customerPackageId)
+        throw new BadRequestException(
+          'Este servicio se agenda con un paquete de sesiones.',
+        );
+      if (!d.customerId)
+        throw new BadRequestException(
+          'Selecciona el cliente que compró el paquete.',
+        );
+      const found = await this.prisma.customerPackage.findFirst({
+        where: {
+          id: d.customerPackageId,
+          spaId,
+          customerId: d.customerId,
+          serviceId: service.id,
+          cancelledAt: null,
+        },
+      });
+      if (!found)
+        throw new NotFoundException('No se encontró el paquete de ese cliente.');
+      if (found.expiresAt && found.expiresAt.getTime() <= Date.now())
+        throw new ConflictException('Ese paquete ya venció.');
+      if (d.additionalPrice !== undefined)
+        throw new BadRequestException(
+          'Una sesión de paquete no admite un adicional.',
+        );
+      pack = found;
+      servicePrice = found.sessionValue;
+    } else if (d.customerPackageId) {
+      throw new BadRequestException(
+        'Este servicio no usa un paquete de sesiones.',
+      );
+    } else if (service.priceType === 'VARIABLE') {
       if (d.additionalPrice === undefined)
         throw new BadRequestException(
           'Indica el adicional del servicio',
@@ -346,43 +388,84 @@ export class AppointmentsService {
           )
             throw this.categoryConflict();
         }
-        const appointment = await this.prisma.appointment.create({
-          data: {
-            spaId,
-            professionalId,
-            serviceId: d.serviceId,
-            customerId: customer.id,
-            customerName: customer.name,
-            customerPhone: customer.phone,
-            customerNationalId: customer.nationalId,
-            customerEmail: customer.email,
-            notes: d.notes,
-            paymentMethod: d.paymentMethod,
-            startAt: slot.start.toUTC().toJSDate(),
-            endAt: slot.end.toUTC().toJSDate(),
-            appointmentDate,
-            serviceCategoryId: service.categoryId,
-            servicePrice,
-            commissionRate: effectiveCommissionRate(
-              assignment.professional.commissionRate,
-              service,
-            ),
-            isWalkIn: slot.isWalkIn,
-            createdById: u.sub,
-          },
-          include: {
-            professional: { select: { displayName: true } },
-            service: {
-              select: {
-                name: true,
-                durationType: true,
-                durationMinutes: true,
-                priceType: true,
-                price: true,
-              },
+        const sessionPack = pack;
+        const appointmentData = {
+          spaId,
+          professionalId,
+          serviceId: d.serviceId,
+          customerId: customer.id,
+          customerName: customer.name,
+          customerPhone: customer.phone,
+          customerNationalId: customer.nationalId,
+          customerEmail: customer.email,
+          notes: d.notes,
+          paymentMethod: d.paymentMethod,
+          startAt: slot.start.toUTC().toJSDate(),
+          endAt: slot.end.toUTC().toJSDate(),
+          appointmentDate,
+          serviceCategoryId: service.categoryId,
+          servicePrice,
+          commissionRate: effectiveCommissionRate(
+            assignment.professional.commissionRate,
+            service,
+          ),
+          isWalkIn: slot.isWalkIn,
+          createdById: u.sub,
+          ...(sessionPack ? { customerPackageId: sessionPack.id } : {}),
+        };
+        const appointmentInclude = {
+          professional: { select: { displayName: true } },
+          service: {
+            select: {
+              name: true,
+              durationType: true,
+              durationMinutes: true,
+              priceType: true,
+              price: true,
             },
           },
-        });
+        } as const;
+        const appointment = sessionPack
+          ? await this.prisma.$transaction(async (tx) => {
+              await tx.$queryRaw`
+                SELECT id FROM "CustomerPackage"
+                WHERE id = CAST(${sessionPack.id} AS uuid)
+                  AND "spaId" = CAST(${spaId} AS uuid)
+                FOR UPDATE
+              `;
+              const used = await tx.appointment.count({
+                where: {
+                  spaId,
+                  customerPackageId: sessionPack.id,
+                  status: { not: 'CANCELLED' },
+                },
+              });
+              if (used >= sessionPack.sessionCount)
+                throw new ConflictException(
+                  'Ese paquete no tiene sesiones disponibles.',
+                );
+              const week = packageWeekBounds(slot.local);
+              const inWeek = await tx.appointment.count({
+                where: {
+                  spaId,
+                  customerPackageId: sessionPack.id,
+                  status: { not: 'CANCELLED' },
+                  startAt: { gte: week.start, lt: week.end },
+                },
+              });
+              if (inWeek >= sessionPack.sessionsPerWeek)
+                throw new ConflictException(
+                  `Esa semana ya tiene las ${sessionPack.sessionsPerWeek} sesiones de este paquete.`,
+                );
+              return tx.appointment.create({
+                data: appointmentData,
+                include: appointmentInclude,
+              });
+            })
+          : await this.prisma.appointment.create({
+              data: appointmentData,
+              include: appointmentInclude,
+            });
         await this.audit.record({
           spaId,
           actorUserId: u.sub,
@@ -462,7 +545,8 @@ export class AppointmentsService {
     const targetProfessionalId = d.professionalId ?? current.professionalId;
     let startAt: Date | undefined,
       endAt: Date | undefined,
-      appointmentDate: Date | undefined;
+      appointmentDate: Date | undefined,
+      dayChanged = false;
     let commissionRate: Prisma.Decimal | undefined;
     if (d.startAt || d.professionalId) {
       if (current.status !== 'CONFIRMED')
@@ -526,6 +610,18 @@ export class AppointmentsService {
       startAt = slot.start.toUTC().toJSDate();
       endAt = slot.end.toUTC().toJSDate();
       appointmentDate = new Date(`${slot.local.toISODate()}T00:00:00.000Z`);
+      const moved = slot.start.toUTC().toMillis() !== current.startAt.getTime();
+      const currentLocal = DateTime.fromJSDate(current.startAt, { zone: spa.timezone });
+      dayChanged = slot.local.toISODate() !== currentLocal.toISODate();
+      if (current.customerPackageId && moved) {
+        if (dayChanged) await this.assertPackageMove(spa, current, slot.local);
+        await this.assertPackageWeek(
+          spaId,
+          current.customerPackageId,
+          slot.local,
+          id,
+        );
+      }
       if (
         await this.scheduling.categoryTaken({
           spaId,
@@ -548,6 +644,9 @@ export class AppointmentsService {
           appointmentDate,
           professionalId: d.professionalId,
           commissionRate,
+          ...(current.customerPackageId && dayChanged
+            ? { rescheduleCount: { increment: 1 } }
+            : {}),
         },
       });
     } catch (error) {
@@ -942,6 +1041,103 @@ export class AppointmentsService {
     await afterCommit('remote-update-mail', () =>
       this.mail!.sendBookingUpdate(message),
     );
+  }
+
+  async packageOptions(u: AuthUser, id: string) {
+    const spaId = u.spaId!;
+    const ownProfessional = u.role === 'PROFESSIONAL' ? (await this.own(u)).id : undefined;
+    const current = await this.prisma.appointment.findFirst({
+      where: { id, spaId, professionalId: ownProfessional, customerPackageId: { not: null } },
+    });
+    if (!current?.customerPackageId) throw new NotFoundException('No se encontró la sesión del paquete');
+    const spa = await this.prisma.spa.findUniqueOrThrow({
+      where: { id: spaId },
+      select: { timezone: true },
+    });
+    const options = await this.rescheduleOptions(spa.timezone, current);
+    const currentDate = DateTime.fromJSDate(current.startAt, { zone: spa.timezone }).toISODate();
+    return {
+      remaining: Math.max(0, options.maxReschedules - current.rescheduleCount),
+      maxReschedules: options.maxReschedules,
+      currentDate,
+      dates: [...new Set([...(currentDate ? [currentDate] : []), ...options.dates])].sort(),
+    };
+  }
+
+  private async rescheduleOptions(
+    timezone: string,
+    current: { id: string; spaId: string; startAt: Date; professionalId: string; customerPackageId: string | null; rescheduleCount: number },
+  ) {
+    const pack = await this.prisma.customerPackage.findFirst({
+      where: { id: current.customerPackageId!, spaId: current.spaId },
+      include: {
+        appointments: {
+          where: { status: { not: 'CANCELLED' }, id: { not: current.id } },
+          select: { appointmentDate: true },
+        },
+      },
+    });
+    if (!pack || pack.cancelledAt) throw new ConflictException('Ese paquete está cancelado.');
+    const shifts = await this.prisma.professionalSchedule.findMany({
+      where: { spaId: current.spaId, professionalId: current.professionalId, isActive: true },
+      select: { dayOfWeek: true },
+    });
+    const dates = packageRescheduleDates({
+      current: DateTime.fromJSDate(current.startAt, { zone: timezone }),
+      otherDates: pack.appointments.map((item) => item.appointmentDate.toISOString().slice(0, 10)),
+      openDays: [...new Set(shifts.map((shift) => shift.dayOfWeek))],
+      preferredWeekdays: pack.preferredWeekdays,
+      sessionsPerWeek: pack.sessionsPerWeek,
+    });
+    return {
+      maxReschedules: pack.maxReschedules,
+      dates: new Set([...dates.sameWeek, ...(dates.tail ? [dates.tail] : [])]),
+    };
+  }
+
+  private async assertPackageMove(
+    spa: { timezone: string },
+    current: { id: string; spaId: string; startAt: Date; professionalId: string; customerPackageId: string | null; rescheduleCount: number },
+    next: DateTime,
+  ) {
+    const options = await this.rescheduleOptions(spa.timezone, current);
+    if (current.rescheduleCount >= options.maxReschedules)
+      throw new ConflictException(
+        `Esta sesión ya se reprogramó ${options.maxReschedules} veces.`,
+      );
+    const date = next.toISODate();
+    if (!date || !options.dates.has(date))
+      throw new ConflictException(
+        'Esa sesión solo puede pasar a un día libre de la misma semana o al final del plan.',
+      );
+  }
+
+  private async assertPackageWeek(
+    spaId: string,
+    packageId: string,
+    local: DateTime,
+    excludeId?: string,
+  ) {
+    const pack = await this.prisma.customerPackage.findFirst({
+      where: { id: packageId, spaId },
+      select: { sessionsPerWeek: true, cancelledAt: true },
+    });
+    if (!pack || pack.cancelledAt)
+      throw new ConflictException('Ese paquete está cancelado.');
+    const week = packageWeekBounds(local);
+    const inWeek = await this.prisma.appointment.count({
+      where: {
+        spaId,
+        customerPackageId: packageId,
+        status: { not: 'CANCELLED' },
+        startAt: { gte: week.start, lt: week.end },
+        ...(excludeId ? { id: { not: excludeId } } : {}),
+      },
+    });
+    if (inWeek >= pack.sessionsPerWeek)
+      throw new ConflictException(
+        `Esa semana ya tiene las ${pack.sessionsPerWeek} sesiones de este paquete.`,
+      );
   }
 
   private verificationUrl(slug: string | undefined, token: string, id: string, tokenVersion?: number) {
