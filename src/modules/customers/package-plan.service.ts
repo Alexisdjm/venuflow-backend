@@ -15,6 +15,7 @@ import {
 } from '../scheduling/scheduling.service';
 import { PackagePlanDto } from './dto/customer-package.dto';
 import { placePackageSessions } from './package-plan';
+import { assertPackageSessionCount } from './package-session-count';
 
 @Injectable()
 export class PackagePlanService {
@@ -28,7 +29,7 @@ export class PackagePlanService {
     const customer = await this.resolveCustomer(spaId, customerId, dto, false);
     const planned = await this.plan(spaId, customer, dto);
     return {
-      sessionCount: planned.service.sessionCount,
+      sessionCount: planned.sessionCount,
       sessionsPerWeek: planned.weekdays.length,
       missing: planned.missing,
       sessions: planned.sessions.map((session) => ({
@@ -60,9 +61,9 @@ export class PackagePlanService {
           customerId: customer.id,
           serviceId: planned.service.id,
           name: planned.service.name,
-          sessionCount: planned.service.sessionCount,
+          sessionCount: planned.sessionCount,
           price,
-          sessionValue: price.div(planned.service.sessionCount).toDecimalPlaces(2),
+          sessionValue: price.div(planned.sessionCount).toDecimalPlaces(2),
           sessionsPerWeek: planned.weekdays.length,
           preferredWeekdays: planned.weekdays,
           preferredProfessionalId: planned.professionalId,
@@ -121,7 +122,7 @@ export class PackagePlanService {
             endAt: session.end.toUTC().toJSDate(),
             appointmentDate,
             serviceCategoryId: planned.service.categoryId,
-            servicePrice: price.div(planned.service.sessionCount).toDecimalPlaces(2),
+            servicePrice: price.div(planned.sessionCount).toDecimalPlaces(2),
             commissionRate: planned.commissionRate,
             isWalkIn: alreadyStarted(session.start),
             createdById: actorUserId,
@@ -275,6 +276,7 @@ export class PackagePlanService {
     });
     if (!service?.isActive || service.offering !== 'PACKAGE')
       throw new BadRequestException('Elige un servicio activo de varias sesiones.');
+    assertPackageSessionCount(dto.sessionCount);
     const weekdays = this.weekdays(dto.preferredWeekdays, dto.sessionsPerWeek);
     const durationMinutes =
       service.durationType === 'VARIABLE' ? dto.durationMinutes : service.durationMinutes;
@@ -314,7 +316,7 @@ export class PackagePlanService {
         'Esos días no están en la agenda de la profesional.',
       );
     const expiresAt = null;
-    const horizonEnd = slot.local.plus({ days: Math.max(service.sessionCount * 21, 60) });
+    const horizonEnd = slot.local.plus({ days: Math.max(dto.sessionCount * 21, 60) });
     const from = slot.local.startOf('day').toUTC().toJSDate();
     const until = horizonEnd.toUTC().toJSDate();
     const [busy, holds, taken] = await Promise.all([
@@ -341,7 +343,7 @@ export class PackagePlanService {
     const placed = placePackageSessions({
       firstStart: slot.local,
       durationMinutes,
-      sessionCount: service.sessionCount,
+      sessionCount: dto.sessionCount,
       sessionsPerWeek: weekdays.length,
       preferredWeekdays: weekdays,
       professionalId: dto.professionalId,
@@ -363,6 +365,7 @@ export class PackagePlanService {
       professionalId: dto.professionalId,
       professionalName: professional.displayName,
       weekdays,
+      sessionCount: dto.sessionCount,
       expiresAt,
       missing: placed.missing,
       sessions: placed.sessions,

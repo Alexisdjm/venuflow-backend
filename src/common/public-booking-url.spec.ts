@@ -45,7 +45,15 @@ describe('public booking urls', () => {
   });
 
   it('rejects reserved slugs, foreign domains and unsafe paths', () => {
-    for (const slug of ['app', 'api', 'www', 'admin', 'form', 'Emi Nails', 'spa.evil.com']) {
+    for (const slug of [
+      'app',
+      'api',
+      'www',
+      'admin',
+      'form',
+      'Emi Nails',
+      'spa.evil.com',
+    ]) {
       expect(isPublicSpaSlug(slug)).toBe(false);
       expect(() =>
         publicSpaUrl(read(production), slug, '/booking/verify?token=abc'),

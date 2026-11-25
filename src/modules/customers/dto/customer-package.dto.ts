@@ -17,9 +17,14 @@ import {
   Min,
   ValidateIf,
 } from 'class-validator';
+import {
+  PACKAGE_SESSION_MAX,
+  PACKAGE_SESSION_MIN,
+} from '../package-session-count';
 
 export class PackagePlanDto {
   @IsUUID() serviceId!: string;
+  @IsInt() @Min(PACKAGE_SESSION_MIN) @Max(PACKAGE_SESSION_MAX) sessionCount!: number;
   @IsInt() @Min(1) @Max(5) sessionsPerWeek!: number;
   @IsArray()
   @ArrayUnique()
@@ -52,6 +57,7 @@ export class PackagePlanDto {
 
 export class AssignPackageDto {
   @IsUUID() serviceId!: string;
+  @IsInt() @Min(PACKAGE_SESSION_MIN) @Max(PACKAGE_SESSION_MAX) sessionCount!: number;
   @IsOptional() @IsDecimal({ decimal_digits: '0,2' }) paidAmount?: string;
 }
 
