@@ -28,18 +28,43 @@ export class RevenueService {
         : period === 'month'
           ? start.plus({ months: 1 })
           : start.plus({ days: 1 });
-    const appointments = await this.prisma.appointment.findMany({
-      where: {
-        spaId,
-        status: 'COMPLETED',
-        startAt: { gte: start.toUTC().toJSDate(), lt: end.toUTC().toJSDate() },
-      },
-      include: {
-        professional: { select: { id: true, displayName: true } },
-        service: { select: { id: true, name: true } },
-      },
-      orderBy: { startAt: 'asc' },
-    });
+    const rangeStart = start.toUTC().toJSDate();
+    const rangeEnd = end.toUTC().toJSDate();
+    const [appointments, packagePayments] = await Promise.all([
+      this.prisma.appointment.findMany({
+        where: {
+          spaId,
+          status: 'COMPLETED',
+          customerPackageId: null,
+          startAt: { gte: rangeStart, lt: rangeEnd },
+        },
+        include: {
+          professional: { select: { id: true, displayName: true } },
+          service: { select: { id: true, name: true } },
+        },
+        orderBy: { startAt: 'asc' },
+      }),
+      this.prisma.packagePayment.findMany({
+        where: { spaId, createdAt: { gte: rangeStart, lt: rangeEnd } },
+        include: {
+          customerPackage: {
+            select: {
+              name: true,
+              service: { select: { id: true, name: true } },
+              appointments: {
+                orderBy: { startAt: 'asc' },
+                take: 1,
+                select: {
+                  commissionRate: true,
+                  professional: { select: { id: true, displayName: true } },
+                },
+              },
+            },
+          },
+        },
+        orderBy: { createdAt: 'asc' },
+      }),
+    ]);
     const buckets = new Map<string, number>();
     const professionals = new Map<
       string,
@@ -62,45 +87,77 @@ export class RevenueService {
       }
     >();
     let gross = 0,
-      commissions = 0;
-    for (const appointment of appointments) {
-      const price = Number(appointment.servicePrice);
-      const commission = (price * Number(appointment.commissionRate)) / 100;
-      gross += price;
+      commissions = 0,
+      sales = 0;
+    const addSale = (sale: {
+      at: Date;
+      price: number;
+      commissionRate: number;
+      professionalId?: string;
+      professionalName?: string;
+      serviceId: string;
+      serviceName: string;
+    }) => {
+      const commission = (sale.price * sale.commissionRate) / 100;
+      gross += sale.price;
       commissions += commission;
-      const local = DateTime.fromJSDate(appointment.startAt).setZone(
-        spa.timezone,
-      );
+      sales += 1;
+      const local = DateTime.fromJSDate(sale.at).setZone(spa.timezone);
       const key =
         period === 'day'
           ? local.toFormat('HH:00')
           : period === 'week'
             ? local.toFormat('ccc dd')
             : local.toFormat('dd');
-      buckets.set(key, (buckets.get(key) ?? 0) + price);
-      const row = professionals.get(appointment.professionalId) ?? {
-        professionalId: appointment.professionalId,
-        name: appointment.professional.displayName,
+      buckets.set(key, (buckets.get(key) ?? 0) + sale.price);
+      if (!sale.professionalId || !sale.professionalName) return;
+      const row = professionals.get(sale.professionalId) ?? {
+        professionalId: sale.professionalId,
+        name: sale.professionalName,
         gross: 0,
         commission: 0,
         appointments: 0,
         services: new Map(),
       };
-      row.gross += price;
+      row.gross += sale.price;
       row.commission += commission;
       row.appointments += 1;
-      const service = row.services.get(appointment.serviceId) ?? {
-        serviceId: appointment.serviceId,
-        name: appointment.service.name,
+      const service = row.services.get(sale.serviceId) ?? {
+        serviceId: sale.serviceId,
+        name: sale.serviceName,
         gross: 0,
         commission: 0,
         appointments: 0,
       };
-      service.gross += price;
+      service.gross += sale.price;
       service.commission += commission;
       service.appointments += 1;
-      row.services.set(appointment.serviceId, service);
-      professionals.set(appointment.professionalId, row);
+      row.services.set(sale.serviceId, service);
+      professionals.set(sale.professionalId, row);
+    };
+    for (const appointment of appointments) {
+      addSale({
+        at: appointment.startAt,
+        price: Number(appointment.servicePrice),
+        commissionRate: Number(appointment.commissionRate),
+        professionalId: appointment.professionalId,
+        professionalName: appointment.professional.displayName,
+        serviceId: appointment.serviceId,
+        serviceName: appointment.service.name,
+      });
+    }
+    for (const payment of packagePayments) {
+      const pack = payment.customerPackage;
+      const session = pack.appointments[0];
+      addSale({
+        at: payment.createdAt,
+        price: Number(payment.amount),
+        commissionRate: session ? Number(session.commissionRate) : 0,
+        professionalId: session?.professional.id,
+        professionalName: session?.professional.displayName,
+        serviceId: pack.service.id,
+        serviceName: pack.service.name,
+      });
     }
     return {
       period,
@@ -114,7 +171,7 @@ export class RevenueService {
         gross,
         commissions,
         net: gross - commissions,
-        appointments: appointments.length,
+        appointments: sales,
       },
       series: [...buckets].map(([label, amount]) => ({ label, amount })),
       professionals: [...professionals.values()]

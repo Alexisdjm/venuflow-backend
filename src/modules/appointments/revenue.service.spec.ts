@@ -18,6 +18,7 @@ describe('RevenueService', () => {
   it('aggregates completed appointments by professional and service', async () => {
     const prisma = {
       spa: { findUniqueOrThrow: jest.fn().mockResolvedValue(spa) },
+      packagePayment: { findMany: jest.fn().mockResolvedValue([]) },
       appointment: {
         findMany: jest.fn().mockResolvedValue([
           {
@@ -68,7 +69,54 @@ describe('RevenueService', () => {
     });
     expect(prisma.appointment.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: expect.objectContaining({ spaId: 'spa-1', status: 'COMPLETED' }),
+        where: expect.objectContaining({
+          spaId: 'spa-1',
+          status: 'COMPLETED',
+          customerPackageId: null,
+        }),
+      }),
+    );
+  });
+
+  it('records the full package when it is sold and ignores later sessions', async () => {
+    const prisma = {
+      spa: { findUniqueOrThrow: jest.fn().mockResolvedValue(spa) },
+      appointment: { findMany: jest.fn().mockResolvedValue([]) },
+      packagePayment: {
+        findMany: jest.fn().mockResolvedValue([
+          {
+            amount: '100',
+            createdAt: new Date('2026-10-23T14:00:00.000Z'),
+            customerPackage: {
+              name: 'Fisio',
+              service: { id: 'pack-1', name: 'Fisio' },
+              appointments: [
+                {
+                  commissionRate: '40',
+                  professional: { id: 'pro-1', displayName: 'Ana' },
+                },
+              ],
+            },
+          },
+        ]),
+      },
+    };
+    const service = new RevenueService(prisma as never);
+
+    const result = await service.get('spa-1', {
+      date: '2026-10-23',
+      period: 'day',
+    });
+
+    expect(result.totals).toEqual({
+      gross: 100,
+      commissions: 40,
+      net: 60,
+      appointments: 1,
+    });
+    expect(prisma.appointment.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ customerPackageId: null }),
       }),
     );
   });
@@ -79,6 +127,7 @@ describe('RevenueService', () => {
       const prisma = {
         spa: { findUniqueOrThrow: jest.fn().mockResolvedValue(spa) },
         appointment: { findMany: jest.fn().mockResolvedValue([]) },
+        packagePayment: { findMany: jest.fn().mockResolvedValue([]) },
       };
       const service = new RevenueService(prisma as never);
 
